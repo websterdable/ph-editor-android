@@ -24,12 +24,6 @@ jobs:
             autoconf libtool pkg-config zlib1g-dev libncurses-dev \
             libtinfo6 cmake libffi-dev libssl-dev aidl
 
-      - name: Accept Android SDK licenses
-        run: |
-          mkdir -p $HOME/.android
-          echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          yes | $ANDROID_HOME/tools/bin/sdkmanager --licenses || true
-
       - name: Install Buildozer
         run: |
           pip install --upgrade pip
@@ -37,12 +31,12 @@ jobs:
 
       - name: Clean Buildozer cache
         run: |
-         rm -rf .buildozer
-         rm -rf ~/.buildozer
+          rm -rf .buildozer
+          rm -rf ~/.buildozer
 
       - name: Build APK
         run: |
-          yes | buildozer android debug
+          buildozer -v android debug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
