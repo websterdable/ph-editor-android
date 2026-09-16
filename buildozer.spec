@@ -10,10 +10,10 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin
 version = 0.1.0
 
 # Без KivyMD, чтобы изолировать проблему сборки
-requirements = python3,kivy,numpy==1.24.4,pillow
+requirements = python3,kivy,numpy==1.22.3,pillow
 
 # Ветка python-for-android с фиксами для Python 3.11 и NumPy
-p4a.branch = master
+p4a.branch = develop
 
 # ONNX Runtime для Android (подключим позже, когда база соберётся)
 # android.gradle_dependencies = com.microsoft.onnxruntime:onnxruntime-android:1.22.0

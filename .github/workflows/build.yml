@@ -33,13 +33,16 @@ jobs:
         run: |
           rm -rf .buildozer
           rm -rf ~/.buildozer
-      - name: Debug environment
+
+      - name: Debug environment and build
         run: |
-          echo "=== Buildozer version ==="
-          buildozer --version
           echo "=== Python version ==="
           python --version
+          echo "=== Buildozer version ==="
+          buildozer --version
           echo "=== Starting build with verbose output ==="
+          # Убираем 'yes |' и добавляем флаг -v
+          buildozer -v android debug
 
       - name: Build APK
         run: |
