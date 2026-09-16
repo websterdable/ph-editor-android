@@ -10,7 +10,7 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin
 version = 0.1.0
 
 # Без KivyMD, чтобы изолировать проблему сборки
-requirements = python3,kivy,numpy==1.22.3,pillow
+requirements = python3,kivy
 
 # Ветка python-for-android с фиксами для Python 3.11 и NumPy
 p4a.branch = develop
