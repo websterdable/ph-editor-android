@@ -14,6 +14,7 @@ from kivy.properties import StringProperty
 from app.core import image_utils as iu
 from app.core.storage import LocalStorage
 from app.core.onnx_engine import OnnxEngine
+from app.core.file_picker import pick_image
 
 
 def _app_dir():
@@ -22,18 +23,6 @@ def _app_dir():
         return app_storage_path()
     except Exception:
         return os.path.join(os.path.expanduser("~"), ".photoai")
-
-
-def _pick_image(callback):
-    try:
-        from plyer import filechooser  # type: ignore
-        filechooser.open_file(
-            on_selection=lambda sel: callback(sel[0] if sel else None),
-            filters=["*.png", "*.jpg", "*.jpeg"],
-        )
-    except Exception as e:
-        Logger.warning(f"filechooser недоступен: {e}")
-        callback(None)
 
 
 class MainScreen(BoxLayout):
@@ -131,7 +120,7 @@ class MainScreen(BoxLayout):
             arr = iu.resize_max_side(arr, 2048)
             self._set_image(arr, source_path=path)
             self.status = f"Открыто: {os.path.basename(path)} ({arr.shape[1]}x{arr.shape[0]})"
-        _pick_image(_done)
+        pick_image(_done)
 
     def on_save(self, *_):
         if self.current_image is None:
