@@ -15,6 +15,8 @@ android.archs = arm64-v8a
 android.permissions = READ_MEDIA_IMAGES
 android.private_storage = True
 android.allow_backup = False
+android.accept_sdk_license = True
+android.build_tools_version = 33.0.0
 
 [buildozer]
 log_level = 2
