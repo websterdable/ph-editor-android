@@ -7,7 +7,8 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,onnx
 source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin
 
-version = 0.1.0
+version = 0.2.0
+android.numeric_version = 2
 
 requirements = python3,kivy,numpy,plyer
 
