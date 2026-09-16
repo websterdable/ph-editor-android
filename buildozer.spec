@@ -10,7 +10,7 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin
 version = 0.1.0
 
 # Требования: пока без KivyMD, чтобы изолировать ошибку
-requirements = python3,kivy,numpy,pillow
+requirements = python3,kivy,numpy==1.22.3,pillow
 
 # Используем develop-ветку python-for-android (там свежие фиксы)
 p4a.branch = develop
@@ -21,6 +21,7 @@ android.gradle_dependencies = com.microsoft.onnxruntime:onnxruntime-android:1.22
 # Android SDK/API
 android.api = 33
 android.minapi = 26
+android.ndk_api = 26
 android.build_tools_version = 33.0.0
 android.accept_sdk_license = True
 
