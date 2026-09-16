@@ -33,6 +33,13 @@ jobs:
         run: |
           rm -rf .buildozer
           rm -rf ~/.buildozer
+      - name: Debug environment
+        run: |
+          echo "=== Buildozer version ==="
+          buildozer --version
+          echo "=== Python version ==="
+          python --version
+          echo "=== Starting build with verbose output ==="
 
       - name: Build APK
         run: |
