@@ -9,11 +9,12 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin
 
 version = 0.1.0
 
-requirements = python3,kivy,numpy
+requirements = python3,kivy,numpy,plyer
 
 p4a.branch = develop
 
 orientation = all
+
 android.api = 36
 android.minapi = 24
 android.ndk = 29
@@ -22,7 +23,7 @@ android.accept_sdk_license = True
 
 android.archs = arm64-v8a
 
-android.permissions = READ_MEDIA_IMAGES
+android.permissions = READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES
 android.private_storage = True
 android.allow_backup = False
 
