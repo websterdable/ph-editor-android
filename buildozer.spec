@@ -1,4 +1,5 @@
 [app]
+[app]
 title = PhotoAI
 package.name = photoai
 package.domain = org.local
@@ -9,16 +10,16 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 
 version = 0.4.0
 
-requirements = python3,kivy,numpy
+requirements = python3,kivy==2.2.1,numpy
 
-p4a.branch = develop
+p4a.branch = master
 
 orientation = all
 icon.filename = %(source.dir)s/assets/icons/icon.png
 
 android.api = 33
 android.minapi = 24
-android.ndk = 25c
+android.ndk = 25b
 android.ndk_api = 24
 android.accept_sdk_license = True
 android.archs = arm64-v8a
