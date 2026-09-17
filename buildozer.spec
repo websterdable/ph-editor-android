@@ -9,7 +9,7 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 
 version = 0.4.0
 
-requirements = python3,kivy,numpy,pillow,plyer
+requirements = python3,kivy,numpy
 
 p4a.branch = develop
 orientation = all

@@ -130,27 +130,17 @@ class ToolsScreen(Screen):
         ext = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}[self.target_format]
         ts = time.strftime("%Y%m%d_%H%M%S")
         out = os.path.join(self.storage.output_dir, f"conv_{ts}{ext}")
-        try:
-            from PIL import Image
-            img = Image.fromarray(self.current)
-            if self.target_format == "JPEG":
-                # JPEG не поддерживает альфу
-                if img.mode == "RGBA":
-                    img = img.convert("RGB")
-                img.save(out, "JPEG", quality=self.target_quality, optimize=True)
-            elif self.target_format == "WEBP":
-                img.save(out, "WEBP", quality=self.target_quality)
-            else:
-                img.save(out, "PNG", optimize=True)
-
-            size_kb = os.path.getsize(out) // 1024
+        # Kivy Texture.save может сохранять в png/jpg
+        if self.target_format == "WEBP":
+            self.info.text = "WebP пока не поддержан — сохраняю как PNG"
+            out = out.replace(".webp", ".png")
+        if iu.save_image(self.current, out):
+            size_kb = os.path.getsize(out) // 1024 if os.path.exists(out) else 0
             self.info.text = f"Сохранено: {os.path.basename(out)} · {size_kb} КБ"
-
-            if save_to_gallery(out, mime=f"image/{self.target_format.lower()}"):
+            if save_to_gallery(out, mime="image/png"):
                 self.info.text += " · ✅ в галерее"
-        except Exception as e:
-            Logger.error(f"tools save: {e}")
-            self.info.text = f"Ошибка: {e}"
+        else:
+            self.info.text = "Ошибка сохранения"
 
     def _back(self):
         self.manager.current = "home"

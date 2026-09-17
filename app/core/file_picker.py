@@ -147,16 +147,9 @@ def _pick_android(callback):
 
 
 def _pick_desktop(callback):
-    """Откат для десктопа (для локальной отладки в WSL)."""
-    try:
-        from plyer import filechooser  # type: ignore
-        filechooser.open_file(
-            on_selection=lambda sel: callback(sel[0] if sel else None),
-            filters=["*.png", "*.jpg", "*.jpeg", "*.heic", "*.heif"],
-        )
-    except Exception as e:
-        Logger.warning(f"file_picker desktop: {e}")
-        callback(None)
+    """На десктопе — просто заглушка (для отладки на Android не нужна)."""
+    Logger.warning("file_picker: десктоп не поддерживается, вернитесь на Android")
+    callback(None)
 
 
 def pick_image(callback):
