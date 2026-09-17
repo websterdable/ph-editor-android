@@ -9,16 +9,15 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 
 version = 0.4.0
 
-requirements = python3,kivy
-
-p4a.branch = v2023.09.25
+requirements = python3==3.10.11,kivy==2.2.1
+p4a.branch = v2023.09.16
 
 orientation = all
 icon.filename = %(source.dir)s/assets/icons/icon.png
 
 android.api = 33
 android.minapi = 24
-android.ndk = 25c
+android.ndk = 25b
 android.ndk_api = 24
 android.accept_sdk_license = True
 android.archs = arm64-v8a
