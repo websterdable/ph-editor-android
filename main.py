@@ -1,6 +1,6 @@
 from kivy.app import App
 from kivy.core.window import Window
-from kivy.uix.screenmanager import ScreenManager, FadeTransition
+from kivy.uix.screenmanager import ScreenManager, NoTransition
 
 from app.ui.theme import theme
 from app.ui.home_screen import HomeScreen
@@ -14,7 +14,7 @@ class PhotoAIApp(App):
 
     def build(self):
         Window.clearcolor = theme.bg
-        sm = ScreenManager(transition=FadeTransition(duration=0.15))
+        sm = ScreenManager(transition=NoTransition())
         sm.add_widget(HomeScreen(name="home"))
         sm.add_widget(EditorScreen(name="editor"))
         sm.add_widget(ToolsScreen(name="tools"))

@@ -18,7 +18,7 @@ class AIScreen(Screen):
         top.add_widget(PillButton(text="←", size_hint_x=None, width=dp(48),
                                    variant="secondary",
                                    on_release=lambda *_: self._back()))
-        top.add_widget(Label(text="✨ ИИ-Редактор", font_size=dp(16),
+        top.add_widget(Label(text="★ ИИ-Редактор", font_size=dp(16),
                               color=theme.text))
         root.add_widget(top)
 

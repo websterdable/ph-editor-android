@@ -62,7 +62,7 @@ class EditorScreen(Screen):
         top.add_widget(PillButton(text="↷", size_hint_x=None, width=dp(48),
                                    variant="ghost",
                                    on_release=lambda *_: self._redo_step()))
-        top.add_widget(PillButton(text="💾", size_hint_x=None, width=dp(48),
+        top.add_widget(PillButton(text="✓", size_hint_x=None, width=dp(48),
                                    variant="primary",
                                    on_release=lambda *_: self._save_all()))
         root.add_widget(top)
@@ -97,7 +97,11 @@ class EditorScreen(Screen):
             tabs_row.add_widget(btn)
         root.add_widget(tabs_row)
 
-        self.tools_scroll = ScrollView(size_hint=(1, None), height=dp(170))
+        self.tools_scroll = ScrollView(
+            size_hint=(1, None), height=dp(170),
+            scroll_type=["bars"],  # только через скроллбар, не через контент
+            bar_width=dp(4),
+        )
         self.tools_panel = BoxLayout(orientation="vertical", size_hint_y=None,
                                        spacing=dp(2), padding=(dp(4), dp(4)))
         self.tools_panel.bind(minimum_height=self.tools_panel.setter("height"))
@@ -313,7 +317,7 @@ class EditorScreen(Screen):
             self._set_status("Ошибка сохранения")
             return
         if save_to_gallery(tmp, mime="image/png"):
-            self._set_status("✅ Сохранено в галерею")
+            self._set_status("✓ Сохранено в галерею")
         else:
             self._set_status("Не удалось экспортировать")
 

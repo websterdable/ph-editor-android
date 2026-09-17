@@ -30,8 +30,9 @@ class LocalStorage:
 
     @staticmethod
     def hash_bytes(data):
+        if isinstance(data, bytearray):
+            data = bytes(data)
         return hashlib.sha256(data).hexdigest()[:16]
-
     def save_result(self, operation, input_hash, image_arr, save_func):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"{operation}_{ts}.png"

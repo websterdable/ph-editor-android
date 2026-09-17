@@ -57,12 +57,12 @@ class ToolsScreen(Screen):
                                     on_release=lambda *_: self._open(),
                                     size_hint_y=None, height=dp(48)))
 
-        root.add_widget(PillButton(text="💾 Сохранить копию как PNG",
+        root.add_widget(PillButton(text="✓ Сохранить копию как PNG",
                                     on_release=lambda *_: self._save_png(),
                                     variant="primary",
                                     size_hint_y=None, height=dp(48)))
 
-        root.add_widget(PillButton(text="📤 Экспорт в галерею",
+        root.add_widget(PillButton(text="↗ Экспорт в галерею",
                                     on_release=lambda *_: self._export(),
                                     variant="secondary",
                                     size_hint_y=None, height=dp(48)))
@@ -124,7 +124,7 @@ class ToolsScreen(Screen):
             self.info.text = "Ошибка сохранения"
             return
         if save_to_gallery(tmp, mime="image/png"):
-            self.info.text = "✅ Сохранено в галерею (Pictures/PhotoAI)"
+            self.info.text = "✓ Сохранено в галерею (Pictures/PhotoAI)"
         else:
             self.info.text = "Не удалось экспортировать"
 
