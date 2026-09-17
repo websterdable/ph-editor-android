@@ -26,7 +26,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             git zip unzip openjdk-17-jdk python3-pip \
-            autoconf libtool pkg-config zlib1g-dev \
+            autoconf automake libtool libtool-bin \
+            libltdl-dev \
+            pkg-config zlib1g-dev \
             libncurses5-dev libncursesw5-dev libtinfo6 \
             cmake libffi-dev libssl-dev
 
@@ -53,12 +55,8 @@ jobs:
 
       - name: Build APK
         env:
-          # Отключаем тяжёлые аудиокодеки SDL2_mixer
           MUSIC_FLUIDSYNTH: 0
           MUSIC_FLAC_DRFLAC: 0
-          # При необходимости можно отключить и другие:
-          # MUSIC_MP3_DRMP3: 0
-          # MUSIC_OGG: 0
         run: |
           buildozer android debug
 
