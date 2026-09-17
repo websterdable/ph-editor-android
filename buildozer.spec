@@ -9,10 +9,10 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 
 version = 0.4.0
 
+# Фиксируем Python 3.11 и стабильную Kivy
 requirements = python3,kivy==2.2.1,numpy
-
-p4a.branch = develop
-p4a.local_recipes = ./p4a-recipes
+p4a.python_version = 3.11
+p4a.branch = master
 
 orientation = all
 icon.filename = %(source.dir)s/assets/icons/icon.png

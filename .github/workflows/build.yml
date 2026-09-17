@@ -30,57 +30,10 @@ jobs:
           pip install --upgrade pip
           pip install buildozer cython==0.29.34
 
-      - name: Cache Buildozer global directory
-        uses: actions/cache@v4
-        with:
-          path: ~/.buildozer
-          key: buildozer-global-${{ hashFiles('buildozer.spec') }}
-          restore-keys: |
-            buildozer-global-
-
       - name: Clean Buildozer cache
         run: |
           rm -rf .buildozer
           rm -rf ~/.buildozer
-
-      - name: Patch libthorvg recipe (fix IndexError on libomp.so)
-        run: |
-          RECIPE_PATH=".buildozer/android/platform/python-for-android/pythonforandroid/recipes/libthorvg/__init__.py"
-          # Этот шаг выполнится только если рецепт уже скачан.
-          # Если нет — он появится после первого запуска, тогда перезапустите workflow.
-          if [ -f "$RECIPE_PATH" ]; then
-            python - <<'PY'
-          import re
-          path = ".buildozer/android/platform/python-for-android/pythonforandroid/recipes/libthorvg/__init__.py"
-          with open(path) as f:
-              content = f.read()
-
-          # Заменяем опасный glob на безопасный вариант с проверкой
-          old = 'clang_lib_dir = glob(pattern)[0]\n            libomp = join(clang_lib_dir, "libomp.so")\n            shprint(sh.cp, libomp, join("install", "lib"))'
-          new = '''matches = glob(pattern)
-              if matches:
-                  clang_lib_dir = matches[0]
-                  libomp = join(clang_lib_dir, "libomp.so")
-                  shprint(sh.cp, libomp, join("install", "lib"))'''
-          content = content.replace(old, new)
-
-          # Если точное совпадение не сработало — используем regex
-          if 'clang_lib_dir = glob(pattern)[0]' in content:
-              content = re.sub(
-                  r'clang_lib_dir = glob\(pattern\)\[0\]',
-                  'matches = glob(pattern)\n            if matches:\n                clang_lib_dir = matches[0]',
-                  content
-              )
-              # Убираем лишние отступы для следующих строк, если нужно
-              # (этот вариант сработает, даже если отступы немного другие)
-
-          with open(path, "w") as f:
-              f.write(content)
-          print("Patched libthorvg recipe")
-          PY
-          else
-            echo "Recipe not found yet. This is normal on first run — rerun the workflow after it is downloaded."
-          fi
 
       - name: Build APK
         run: |
