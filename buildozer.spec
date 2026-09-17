@@ -11,7 +11,8 @@ version = 0.4.0
 
 requirements = python3,kivy,numpy
 
-p4a.branch = develop
+p4a.branch = master
+
 orientation = all
 icon.filename = %(source.dir)s/assets/icons/icon.png
 
