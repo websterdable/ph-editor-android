@@ -9,16 +9,17 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 
 version = 0.4.0
 
-# NumPy 1.24.4 совместим с Python 3.11 и стабильно собирается
-requirements = python3,kivy,numpy==1.24.4
+# NumPy 1.26.4 — первая версия с официальной поддержкой Python 3.11
+requirements = python3,kivy,numpy==1.26.4
 
-# Стабильная ветка p4a, проверенная на совместимость с NumPy
+# Указываем на предварительно собранный wheel для Android arm64-v8a + Python 3.11
+requirements.source.numpy = https://anaconda.org/channels/buildozer/packages/numpy/files/numpy-1.26.4-0-cp311-cp311-android_24_arm64_v8a.whl
+
 p4a.branch = master
 
 orientation = all
 icon.filename = %(source.dir)s/assets/icons/icon.png
 
-# Проверенная связка NDK/API для сборки NumPy
 android.api = 33
 android.minapi = 24
 android.ndk = 25c
