@@ -6,6 +6,7 @@ from app.ui.theme import theme
 from app.ui.home_screen import HomeScreen
 from app.ui.editor_screen import EditorScreen
 from app.ui.tools_screen import ToolsScreen
+from app.ui.ai_screen import AIScreen
 
 
 class PhotoAIApp(App):
@@ -17,6 +18,7 @@ class PhotoAIApp(App):
         sm.add_widget(HomeScreen(name="home"))
         sm.add_widget(EditorScreen(name="editor"))
         sm.add_widget(ToolsScreen(name="tools"))
+        sm.add_widget(AIScreen(name="ai"))
         return sm
 
 

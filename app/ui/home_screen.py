@@ -91,7 +91,7 @@ class HomeScreen(Screen):
             on_press=lambda: self._go("tools")))
         root.add_widget(ModuleCard(
             icon="✨", title="ИИ-Редактор",
-            subtitle="Улучшение, лица, фон, возраст (скоро)",
+            subtitle="Апскейл, лица, фон, колоризация",
             on_press=lambda: self._go("ai")))
 
         root.add_widget(BoxLayout())  # spacer
@@ -121,11 +121,4 @@ class HomeScreen(Screen):
         pass
 
     def _go(self, name):
-        if name == "ai":
-            from kivy.uix.popup import Popup
-            from kivy.uix.label import Label
-            Popup(title="ИИ-Редактор",
-                  content=Label(text="Модуль в разработке"),
-                  size_hint=(0.7, 0.3)).open()
-            return
         self.manager.current = name
