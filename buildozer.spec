@@ -18,7 +18,7 @@ icon.filename = %(source.dir)s/assets/icons/icon.png
 
 android.api = 33
 android.minapi = 24
-android.ndk = 21e
+android.ndk = 25c
 android.ndk_api = 24
 android.accept_sdk_license = True
 android.archs = arm64-v8a
