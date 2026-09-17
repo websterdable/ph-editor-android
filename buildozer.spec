@@ -1,5 +1,4 @@
 [app]
-[app]
 title = PhotoAI
 package.name = photoai
 package.domain = org.local
