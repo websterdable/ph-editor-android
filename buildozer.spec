@@ -9,7 +9,11 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 
 version = 0.4.0
 
-requirements = python3,kivy,numpy==1.22.3
+# Указываем точную версию, для которой есть готовый wheel
+requirements = python3,kivy,numpy==1.26.3
+
+# Указываем источник для NumPy (готовый wheel)
+requirements.source.numpy = https://anaconda.org/channels/buildozer/packages/numpy/files/numpy-1.26.3-0-cp311-cp311-android_24_arm64_v8a.whl
 
 p4a.branch = master
 
@@ -18,7 +22,7 @@ icon.filename = %(source.dir)s/assets/icons/icon.png
 
 android.api = 33
 android.minapi = 24
-android.ndk = 25b
+android.ndk = 25c
 android.ndk_api = 24
 android.accept_sdk_license = True
 android.archs = arm64-v8a
