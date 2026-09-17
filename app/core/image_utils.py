@@ -1,16 +1,16 @@
-"""Загрузка/сохранение изображений через Kivy CoreImage.
+"""Загрузка/сохранение и базовые операции с изображениями без NumPy.
 
-Без Pillow — работает на чистом Kivy + NumPy.
+Изображение хранится как bytes в формате RGB (3 байта на пиксель).
+Операции — через bytes.translate и срезы (C-скорость).
 """
 import os
-import numpy as np
 from kivy.core.image import Image as CoreImage
 from kivy.graphics.texture import Texture
 from kivy.logger import Logger
 
 
 def load_image(path):
-    """Загрузить файл -> numpy (H, W, 3) uint8, RGB. None при ошибке."""
+    """Загрузить файл -> (rgb_bytes, width, height) или None."""
     if not path or not os.path.exists(path):
         Logger.error(f"load_image: файл не существует: {path}")
         return None
@@ -21,62 +21,45 @@ def load_image(path):
         if not pixels:
             Logger.error("load_image: пустые пиксели")
             return None
-        arr = np.frombuffer(pixels, dtype=np.uint8).reshape(h, w, 4)
-        return arr[::-1, :, :3].copy()
+        # RGBA -> RGB через срезы
+        r = pixels[0::4]
+        g = pixels[1::4]
+        b = pixels[2::4]
+        rgb = bytearray(w * h * 3)
+        rgb[0::3] = r
+        rgb[1::3] = g
+        rgb[2::3] = b
+        Logger.info(f"load_image: {w}x{h}, {len(rgb)} байт")
+        return bytes(rgb), w, h
     except Exception as e:
         Logger.error(f"load_image: {e}")
         return None
 
 
-def save_image(arr, path):
-    """Сохранить numpy (H, W, 3 или 4) uint8. True при успехе."""
-    if arr is None:
-        return False
+def save_image(rgb_bytes, w, h, path):
+    """Сохранить RGB-bytes -> файл."""
     try:
-        if arr.ndim == 2:
-            arr = np.dstack([arr] * 3)
-        h, w = arr.shape[:2]
-        if arr.shape[2] == 3:
-            alpha = np.full((h, w, 1), 255, dtype=np.uint8)
-            rgba = np.concatenate([arr, alpha], axis=2)
-        else:
-            rgba = arr
-        rgba = rgba[::-1]
-        tex = Texture.create(size=(w, h), colorfmt="rgba")
-        tex.blit_buffer(rgba.tobytes(), colorfmt="rgba", bufferfmt="ubyte")
-        # Kivy Texture.save определяет формат по расширению
+        rgba = bytearray(w * h * 4)
+        rgba[0::4] = rgb_bytes[0::3]
+        rgba[1::4] = rgb_bytes[1::3]
+        rgba[2::4] = rgb_bytes[2::3]
+        rgba[3::4] = b'\xff' * (w * h)
+        tex = Texture.create(size=(w, h), colorfmt='rgba')
+        tex.blit_buffer(bytes(rgba), colorfmt='rgba', bufferfmt='ubyte')
         tex.save(path)
-        Logger.info(f"save_image: {path}")
         return True
     except Exception as e:
         Logger.error(f"save_image: {e}")
         return False
 
 
-def to_texture(arr):
-    if arr is None:
-        return None
-    h, w = arr.shape[:2]
-    if arr.ndim == 2:
-        arr = np.dstack([arr] * 3)
-    if arr.shape[2] == 3:
-        alpha = np.full((h, w, 1), 255, dtype=np.uint8)
-        rgba = np.concatenate([arr, alpha], axis=2)
-    else:
-        rgba = arr
-    rgba = rgba[::-1]
-    tex = Texture.create(size=(w, h), colorfmt="rgba")
-    tex.blit_buffer(rgba.tobytes(), colorfmt="rgba", bufferfmt="ubyte")
+def to_texture(rgb_bytes, w, h):
+    """RGB bytes -> Kivy Texture для отображения."""
+    rgba = bytearray(w * h * 4)
+    rgba[0::4] = rgb_bytes[0::3]
+    rgba[1::4] = rgb_bytes[1::3]
+    rgba[2::4] = rgb_bytes[2::3]
+    rgba[3::4] = b'\xff' * (w * h)
+    tex = Texture.create(size=(w, h), colorfmt='rgba')
+    tex.blit_buffer(bytes(rgba), colorfmt='rgba', bufferfmt='ubyte')
     return tex
-
-
-def resize_max_side(arr, max_side=2048):
-    h, w = arr.shape[:2]
-    longest = max(h, w)
-    if longest <= max_side:
-        return arr
-    scale = max_side / longest
-    new_h, new_w = int(h * scale), int(w * scale)
-    ys = (np.arange(new_h) * (h / new_h)).astype(np.int32)
-    xs = (np.arange(new_w) * (w / new_w)).astype(np.int32)
-    return arr[ys][:, xs]

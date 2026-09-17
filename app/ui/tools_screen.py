@@ -1,14 +1,12 @@
-"""Модуль 2: инструменты (формат, размер, сжатие)."""
+"""Модуль 2: базовые инструменты (форматы, сжатие)."""
 import os
 import time
 from kivy.metrics import dp
 from kivy.uix.screenmanager import Screen
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
-from kivy.uix.textinput import TextInput
 from kivy.uix.image import Image as KivyImage
 from kivy.graphics import Color, Rectangle
-from kivy.logger import Logger
 
 from app.core import image_utils as iu
 from app.core.file_picker import pick_image
@@ -26,18 +24,12 @@ def _app_dir():
         return os.path.join(os.path.expanduser("~"), ".photoai")
 
 
-FORMATS = [("PNG", "PNG", ".png"), ("JPEG", "JPEG", ".jpg"), ("WEBP", "WEBP", ".webp")]
-QUALITIES = [("100%", 100), ("95%", 95), ("80%", 80), ("60%", 60)]
-
-
 class ToolsScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.base_dir = _app_dir()
         self.storage = LocalStorage(self.base_dir)
-        self.current = None
-        self.target_format = "PNG"
-        self.target_quality = 95
+        self.current = None  # (bytes, w, h)
         self._build()
         theme.bind(bg=self._upd_bg)
 
@@ -48,46 +40,40 @@ class ToolsScreen(Screen):
         top.add_widget(PillButton(text="←", size_hint_x=None, width=dp(48),
                                    variant="secondary",
                                    on_release=lambda *_: self._back()))
-        top.add_widget(Label(text="Инструменты", font_size=dp(15), color=theme.text))
+        top.add_widget(Label(text="Инструменты", font_size=dp(15),
+                              color=theme.text))
         root.add_widget(top)
 
-        self.preview = KivyImage(size_hint=(1, 1), allow_stretch=True, keep_ratio=True)
+        self.preview = KivyImage(size_hint=(1, 1), allow_stretch=True,
+                                  keep_ratio=True)
         root.add_widget(self.preview)
 
-        self.info = Label(text="Файл не выбран", size_hint_y=None, height=dp(40),
-                          color=theme.text_muted, font_size=dp(12))
+        self.info = Label(text="Файл не выбран", size_hint_y=None,
+                          height=dp(40), color=theme.text_muted,
+                          font_size=dp(12))
         root.add_widget(self.info)
 
-        root.add_widget(PillButton(text="Открыть фото", on_release=lambda *_: self._open(),
+        root.add_widget(PillButton(text="Открыть фото",
+                                    on_release=lambda *_: self._open(),
                                     size_hint_y=None, height=dp(48)))
 
-        root.add_widget(Label(text="Формат:", size_hint_y=None, height=dp(24),
-                                color=theme.text, font_size=dp(13)))
-        fmt_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(4))
-        self._fmt_btns = {}
-        for name, tag, ext in FORMATS:
-            b = PillButton(text=name, variant="secondary")
-            b.bind(on_release=lambda inst, t=tag: self._select_format(t))
-            self._fmt_btns[tag] = b
-            fmt_row.add_widget(b)
-        root.add_widget(fmt_row)
-
-        root.add_widget(Label(text="Качество (для JPEG/WebP):",
-                                size_hint_y=None, height=dp(24),
-                                color=theme.text, font_size=dp(13)))
-        q_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(4))
-        for name, val in QUALITIES:
-            b = PillButton(text=name, variant="secondary")
-            b.bind(on_release=lambda inst, v=val: self._select_quality(v))
-            q_row.add_widget(b)
-        root.add_widget(q_row)
-
-        root.add_widget(PillButton(text="💾 Сохранить как новое",
-                                    on_release=lambda *_: self._save_as(),
+        root.add_widget(PillButton(text="💾 Сохранить копию как PNG",
+                                    on_release=lambda *_: self._save_png(),
+                                    variant="primary",
                                     size_hint_y=None, height=dp(48)))
+
+        root.add_widget(PillButton(text="📤 Экспорт в галерею",
+                                    on_release=lambda *_: self._export(),
+                                    variant="secondary",
+                                    size_hint_y=None, height=dp(48)))
+
+        hint = Label(
+            text="Конвертация в JPEG/WebP будет добавлена позже.\n"
+                 "Сейчас доступен экспорт в PNG.",
+            font_size=dp(11), color=theme.text_muted)
+        root.add_widget(hint)
 
         self.add_widget(root)
-        self._select_format("PNG")
 
     def _upd_bg(self, *_):
         self.canvas.before.clear()
@@ -103,44 +89,44 @@ class ToolsScreen(Screen):
         def _done(path):
             if not path:
                 return
-            arr = iu.load_image(path)
-            if arr is None:
+            loaded = iu.load_image(path)
+            if loaded is None:
                 self.info.text = "Не удалось загрузить"
                 return
-            self.current = arr
-            self.preview.texture = iu.to_texture(arr)
-            h, w = arr.shape[:2]
+            self.current = loaded
+            b, w, h = loaded
+            self.preview.texture = iu.to_texture(b, w, h)
             size_kb = os.path.getsize(path) // 1024
             self.info.text = f"{w}×{h} · {size_kb} КБ · {os.path.basename(path)}"
         pick_image(_done)
 
-    def _select_format(self, tag):
-        self.target_format = tag
-        for t, b in self._fmt_btns.items():
-            b.variant = "primary" if t == tag else "secondary"
-            b._upd_color()
-
-    def _select_quality(self, val):
-        self.target_quality = val
-
-    def _save_as(self):
+    def _save_png(self):
         if self.current is None:
             self.info.text = "Сначала откройте фото"
             return
-        ext = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}[self.target_format]
+        b, w, h = self.current
         ts = time.strftime("%Y%m%d_%H%M%S")
-        out = os.path.join(self.storage.output_dir, f"conv_{ts}{ext}")
-        # Kivy Texture.save может сохранять в png/jpg
-        if self.target_format == "WEBP":
-            self.info.text = "WebP пока не поддержан — сохраняю как PNG"
-            out = out.replace(".webp", ".png")
-        if iu.save_image(self.current, out):
-            size_kb = os.path.getsize(out) // 1024 if os.path.exists(out) else 0
+        out = os.path.join(self.storage.output_dir, f"copy_{ts}.png")
+        if iu.save_image(b, w, h, out):
+            size_kb = os.path.getsize(out) // 1024
             self.info.text = f"Сохранено: {os.path.basename(out)} · {size_kb} КБ"
-            if save_to_gallery(out, mime="image/png"):
-                self.info.text += " · ✅ в галерее"
         else:
             self.info.text = "Ошибка сохранения"
+
+    def _export(self):
+        if self.current is None:
+            self.info.text = "Сначала откройте фото"
+            return
+        b, w, h = self.current
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        tmp = os.path.join(self.storage.output_dir, f"export_{ts}.png")
+        if not iu.save_image(b, w, h, tmp):
+            self.info.text = "Ошибка сохранения"
+            return
+        if save_to_gallery(tmp, mime="image/png"):
+            self.info.text = "✅ Сохранено в галерею (Pictures/PhotoAI)"
+        else:
+            self.info.text = "Не удалось экспортировать"
 
     def _back(self):
         self.manager.current = "home"
