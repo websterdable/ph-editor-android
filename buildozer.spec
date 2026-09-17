@@ -5,13 +5,13 @@ package.domain = org.local
 
 source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,onnx
-source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,tools
+source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,tools,p4a-recipes
 
 version = 0.4.0
 
-requirements = python3,kivy==2.2.1
+requirements = python3,kivy
 
-p4a.branch = develop
+p4a.branch = master
 
 orientation = all
 icon.filename = %(source.dir)s/assets/icons/icon.png
