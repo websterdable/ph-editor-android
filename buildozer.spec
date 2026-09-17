@@ -10,7 +10,7 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin
 version = 0.2.0
 android.numeric_version = 2
 
-requirements = python3,kivy,numpy,plyer,pyjnius
+requirements = python3,kivy,numpy,pillow,plyer,pyjnius
 
 p4a.branch = develop
 
