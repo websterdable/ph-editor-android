@@ -21,9 +21,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y git zip unzip openjdk-17-jdk \
-            autoconf automake libtool libltdl-dev pkg-config \
-            zlib1g-dev libncurses-dev libtinfo6 cmake \
-            libffi-dev libssl-dev aidl
+            autoconf libtool pkg-config zlib1g-dev libncurses-dev \
+            libtinfo6 cmake libffi-dev libssl-dev aidl
 
       - name: Install Buildozer
         run: |
@@ -35,19 +34,16 @@ jobs:
           rm -rf .buildozer
           rm -rf ~/.buildozer
 
-      - name: Debug environment and build
-        run: |
-          echo "=== Python version ==="
-          python --version
-          echo "=== Buildozer version ==="
-          buildozer --version
-          echo "=== Starting build with verbose output ==="
-          # Убираем 'yes |' и добавляем флаг -v
-          buildozer -v android debug
-
       - name: Build APK
         run: |
-          buildozer -v android debug
+          buildozer -v android debug 2>&1 | tee build.log
+
+      - name: Upload Build Log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
