@@ -1,14 +1,4 @@
 # PhotoAI — локальный ИИ-фоторедактор для Android
-
-<p align="center">
-  <img src="assets/icons/icon.png" width="120" alt="PhotoAI"/>
-</p>
-
-<p align="center">
-  <b>Private by design</b> — все фото обрабатываются на устройстве.
-  Никаких облаков, никакой телеметрии, ноль сетевых запросов.
-</p>
-
 ---
 
 ## ✨ Возможности
@@ -109,13 +99,18 @@ git clone https://github.com/websterdable/photoai-android.git
 cd photoai-android
 ```
 
+---
+
 # Виртуальное окружение
+```bash
 python3.10 -m venv venv
 source venv/bin/activate
 pip install kivy==2.2.1 pyjnius
+```
+
+---
 
 # Сборка APK — только через GitHub Actions (push в main)
-
 Локальная сборка APK не поддерживается из-за сложностей с Android SDK/NDK. Используйте git push — GitHub Actions соберёт APK автоматически.
 
 ---
@@ -124,5 +119,3 @@ pip install kivy==2.2.1 pyjnius
 - Код проекта: MIT (см. LICENSE)
 - Шрифт Inter: SIL Open Font License 1.1
 - Material Symbols: Apache 2.0
-
-
