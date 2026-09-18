@@ -75,3 +75,60 @@ def to_texture(rgb_bytes, w, h):
     tex = Texture.create(size=(w, h), colorfmt='rgba')
     tex.blit_buffer(bytes(rgba), colorfmt='rgba', bufferfmt='ubyte')
     return tex
+
+def save_as_android(src_path, dst_path, fmt="JPEG", quality=90,
+                    target_w=None, target_h=None):
+    """Сохранить через Android BitmapFactory → compress.
+
+    fmt: 'JPEG' | 'PNG' | 'WEBP'
+    quality: 10..100 (для JPEG/WebP, для PNG игнорируется)
+    target_w/target_h: ресайз, если заданы и отличаются от исходных.
+
+    EXIF (геопозиция, модель камеры) НЕ переносится — метаданные удаляются.
+    """
+    try:
+        from jnius import autoclass
+        BitmapFactory = autoclass("android.graphics.BitmapFactory")
+        Bitmap = autoclass("android.graphics.Bitmap")
+        BCF = autoclass("android.graphics.Bitmap$CompressFormat")
+        FOS = autoclass("java.io.FileOutputStream")
+
+        bmp = BitmapFactory.decodeFile(src_path)
+        if bmp is None:
+            Logger.error(f"save_as_android: decodeFile failed: {src_path}")
+            return False
+
+        orig_w = bmp.getWidth()
+        orig_h = bmp.getHeight()
+
+        if target_w and target_h and (target_w != orig_w or target_h != orig_h):
+            scaled = Bitmap.createScaledBitmap(bmp, int(target_w), int(target_h), True)
+            bmp.recycle()
+            bmp = scaled
+
+        out = FOS(dst_path)
+        ok = False
+        if fmt == "JPEG":
+            ok = bmp.compress(BCF.JPEG, int(quality), out)
+        elif fmt == "WEBP":
+            ok = bmp.compress(BCF.WEBP, int(quality), out)
+            if not ok:
+                Logger.warning("save_as_android: WEBP не поддержан, сохраняю JPEG")
+                bmp.compress(BCF.JPEG, int(quality), out)
+                ok = True
+        else:
+            ok = bmp.compress(BCF.PNG, 100, out)
+
+        out.flush()
+        out.close()
+        bmp.recycle()
+
+        if not ok:
+            Logger.error("save_as_android: compress вернул False")
+            return False
+
+        Logger.info(f"save_as_android: OK -> {dst_path}")
+        return True
+    except Exception as e:
+        Logger.exception(f"save_as_android: {e}")
+        return False
