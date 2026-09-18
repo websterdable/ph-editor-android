@@ -16,12 +16,14 @@ from app.core.file_picker import pick_image
 from app.core.storage import LocalStorage
 from app.core.exporter import save_to_gallery
 from app.ui.theme import theme
-from app.ui.widgets import PillButton, SliderRow
+
+from kivy.uix.textinput import TextInput
+from kivy.uix.popup import Popup
 
 from app.ui.widgets import (
     PillButton, SliderRow, IconButton,
     ICON_BACK, ICON_UNDO, ICON_REDO, ICON_SAVE,
-    ICON_ROTATE_R, ICON_ROTATE_L, ICON_FLIP,
+    ICON_ROTATE_R, ICON_ROTATE_L, ICON_FLIP, ICON_CROP,
 )
 
 
@@ -33,8 +35,16 @@ def _app_dir():
         return os.path.join(os.path.expanduser("~"), ".photoai")
 
 
-TABS = ["Базовое", "Свет", "Фильтры", "Геометрия"]
+TABS = ["Базовое", "Свет", "Фильтры", "Кроп", "Геометрия"]
 
+CROP_PRESETS = [
+    ("Оригинал", None),
+    ("1 : 1",    (1, 1)),
+    ("4 : 5",    (4, 5)),
+    ("3 : 2",    (3, 2)),
+    ("16 : 9",   (16, 9)),
+    ("9 : 16",   (9, 16)),
+]
 
 class EditorScreen(Screen):
     def __init__(self, **kwargs):
@@ -72,12 +82,29 @@ class EditorScreen(Screen):
         top.add_widget(IconButton(
             icon=ICON_REDO, variant="ghost",
             size_hint=(None, None), size=(dp(44), dp(44)),
-            on_release=lambda *_: self._redo_step()))
+            on_release=lambda *_: self._redo_step()))    
+        
+        # Кнопка «Текст»
+        top.add_widget(IconButton(
+            icon="\ue262",  # text_fields
+            variant="ghost",
+            size_hint=(None, None), size=(dp(44), dp(44)),
+            on_release=lambda *_: self._show_text_dialog()))
+
+        # Кнопка «Сравнить» — нажал: оригинал, отпустил: результат
+        cmp_btn = IconButton(
+            icon="\ue41d",  # compare
+            variant="ghost",
+            size_hint=(None, None), size=(dp(44), dp(44)))
+        cmp_btn.bind(state=self._on_compare_state)
+        top.add_widget(cmp_btn)
+
         top.add_widget(IconButton(
             icon=ICON_SAVE, variant="primary",
             size_hint=(None, None), size=(dp(44), dp(44)),
             on_release=lambda *_: self._save_all()))
         root.add_widget(top)
+
 
         self.preview = KivyImage(size_hint=(1, 1), allow_stretch=True,
                                   keep_ratio=True)
@@ -209,6 +236,8 @@ class EditorScreen(Screen):
             self._build_light()
         elif name == "Фильтры":
             self._build_filters()
+        elif name == "Кроп":
+            self._build_crop()
         elif name == "Геометрия":
             self._build_geom()
 
@@ -345,6 +374,225 @@ class EditorScreen(Screen):
             lbl.bind(size=lambda *_: setattr(lbl, "text_size", lbl.size))
             row.add_widget(lbl)
             self.tools_panel.add_widget(row)
+
+        # ─── Сравнение «до/после» ────────────────────────────────
+
+    def _on_compare_state(self, btn, state):
+        if self.original is None:
+            return
+        if state == "down":
+            # Показываем оригинал
+            b, w, h = self.original
+            tex = iu.to_texture(b, w, h)
+            if tex:
+                self.preview.texture = tex
+                self.preview.canvas.ask_update()
+            self._set_status("Показан оригинал")
+        else:
+            # Возвращаем текущий результат
+            self._refresh_preview()
+            self._set_status("Показан результат")
+
+    # ─── Кроп ────────────────────────────────────────────────
+
+    def _build_crop(self):
+        # Кнопки-пресеты
+        for name, ratio in CROP_PRESETS:
+            btn = PillButton(text=name, variant="secondary",
+                             size_hint_y=None, height=dp(44))
+            btn.bind(on_release=lambda inst, r=ratio: self._apply_crop_preset(r))
+            self.tools_panel.add_widget(btn)
+
+        # Разделитель
+        sep = Label(text="Ручной кроп", size_hint_y=None, height=dp(28),
+                    color=theme.text_muted, font_name=theme.font_regular,
+                    font_size=dp(12))
+        self.tools_panel.add_widget(sep)
+
+        # Кнопка — открыть диалог с полями X/Y/W/H
+        btn_manual = PillButton(text="Задать координаты", variant="primary",
+                                 size_hint_y=None, height=dp(44))
+        btn_manual.bind(on_release=lambda *_: self._show_crop_dialog())
+        self.tools_panel.add_widget(btn_manual)
+
+    def _apply_crop_preset(self, ratio):
+        if self.current is None:
+            self._set_status("Сначала откройте фото")
+            return
+        self._push_undo()
+        b, w, h = self.current
+        if ratio is None:
+            # «Оригинал» — просто оставить как есть
+            self._set_status("Кроп отменён")
+            return
+        new_b, new_w, new_h = ops.crop_centered(b, w, h, ratio[0], ratio[1])
+        self.current = (new_b, new_w, new_h)
+        self.original = self.current  # кроп — фундаментальная операция
+        self._refresh_preview()
+        self._set_status(f"Кроп {ratio[0]}:{ratio[1]} · {new_w}×{new_h}")
+
+    def _show_crop_dialog(self):
+        if self.current is None:
+            self._set_status("Сначала откройте фото")
+            return
+        _, w, h = self.current
+
+        root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+
+        fields = {}
+        for label, default in [("X", 0), ("Y", 0),
+                                ("Ширина", w), ("Высота", h)]:
+            row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+            lbl = Label(text=label, size_hint_x=0.3, color=theme.text,
+                        font_name=theme.font_regular, font_size=dp(13))
+            row.add_widget(lbl)
+            ti = TextInput(text=str(default), multiline=False,
+                           input_filter="int", font_size=dp(14))
+            row.add_widget(ti)
+            fields[label] = ti
+            root.add_widget(row)
+
+        hint = Label(text=f"Максимум: {w}×{h}",
+                     size_hint_y=None, height=dp(24),
+                     color=theme.text_muted, font_size=dp(11))
+        root.add_widget(hint)
+
+        btns = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+        cancel = PillButton(text="Отмена", variant="ghost")
+        ok = PillButton(text="Применить", variant="primary")
+
+        def _cancel(*_):
+            popup.dismiss()
+
+        def _apply(*_):
+            try:
+                x = int(fields["X"].text or 0)
+                y = int(fields["Y"].text or 0)
+                cw = int(fields["Ширина"].text or w)
+                ch = int(fields["Высота"].text or h)
+                popup.dismiss()
+                self._apply_manual_crop(x, y, cw, ch)
+            except Exception as e:
+                self._set_status(f"Ошибка: {e}")
+
+        cancel.bind(on_release=_cancel)
+        ok.bind(on_release=_apply)
+        btns.add_widget(cancel)
+        btns.add_widget(ok)
+        root.add_widget(btns)
+
+        popup = Popup(title="Ручной кроп", content=root,
+                      size_hint=(0.9, 0.6), title_color=theme.text,
+                      separator_color=theme.accent)
+        popup.open()
+
+    def _apply_manual_crop(self, x, y, cw, ch):
+        if self.current is None:
+            return
+        self._push_undo()
+        b, w, h = self.current
+        new_b, new_w, new_h = ops.crop(b, w, h, x, y, cw, ch)
+        self.current = (new_b, new_w, new_h)
+        self.original = self.current
+        self._refresh_preview()
+        self._set_status(f"Кроп · {new_w}×{new_h}")
+
+    # ─── Текст на фото ──────────────────────────────────────
+
+    def _show_text_dialog(self):
+        if self.current is None:
+            self._set_status("Сначала откройте фото")
+            return
+
+        root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
+
+        ti = TextInput(text="", multiline=False, font_size=dp(15),
+                       hint_text="Введите текст…")
+        root.add_widget(ti)
+
+        # Размер
+        size_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
+        size_lbl = Label(text="Размер", size_hint_x=0.3, color=theme.text,
+                         font_name=theme.font_regular, font_size=dp(13))
+        size_row.add_widget(size_lbl)
+        size_in = TextInput(text="48", multiline=False, input_filter="int",
+                             font_size=dp(14))
+        size_row.add_widget(size_in)
+        root.add_widget(size_row)
+
+        # Цвет
+        color_lbl = Label(text="Цвет", size_hint_y=None, height=dp(24),
+                          color=theme.text, font_name=theme.font_regular,
+                          font_size=dp(13))
+        root.add_widget(color_lbl)
+
+        color_btns = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+        color_map = {
+            "Белый":    (255, 255, 255, 255),
+            "Чёрный":   (0, 0, 0, 255),
+            "Красный":  (255, 60, 60, 255),
+            "Синий":    (60, 120, 255, 255),
+            "Жёлтый":   (255, 220, 60, 255),
+        }
+        selected = {"color": (255, 255, 255, 255)}
+        color_buttons = {}
+
+        def _pick_color(name, rgba):
+            selected["color"] = rgba
+            for n, b in color_buttons.items():
+                b.variant = "primary" if n == name else "secondary"
+                b._upd_color()
+
+        for name, rgba in color_map.items():
+            b = PillButton(text=name, variant="secondary", font_size=dp(11))
+            b.bind(on_release=lambda inst, n=name, c=rgba: _pick_color(n, c))
+            color_buttons[name] = b
+            color_btns.add_widget(b)
+        root.add_widget(color_btns)
+
+        # Кнопки
+        btns = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+        cancel = PillButton(text="Отмена", variant="ghost")
+        ok = PillButton(text="Добавить", variant="primary")
+
+        def _cancel(*_):
+            popup.dismiss()
+
+        def _apply(*_):
+            text = ti.text.strip()
+            if not text:
+                popup.dismiss()
+                return
+            try:
+                fs = int(size_in.text or 48)
+            except Exception:
+                fs = 48
+            popup.dismiss()
+            self._apply_text(text, fs, selected["color"])
+
+        cancel.bind(on_release=_cancel)
+        ok.bind(on_release=_apply)
+        btns.add_widget(cancel)
+        btns.add_widget(ok)
+        root.add_widget(btns)
+
+        popup = Popup(title="Текст на фото", content=root,
+                      size_hint=(0.9, 0.7), title_color=theme.text,
+                      separator_color=theme.accent)
+        popup.open()
+
+    def _apply_text(self, text, font_size, color):
+        if self.current is None:
+            return
+        self._push_undo()
+        b, w, h = self.current
+        new_b = ops.text_overlay(b, w, h, text,
+                                  font_size=font_size,
+                                  color=color,
+                                  x_ratio=0.5, y_ratio=0.85)
+        self.current = (new_b, w, h)
+        self._refresh_preview()
+        self._set_status(f"Текст добавлен: «{text[:20]}…»")
 
     def _rotate(self, cw):
         if self.current is None:

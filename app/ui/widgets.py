@@ -32,6 +32,7 @@ ICON_ERROR = "\ue000"
 ICON_CLOSE = "\ue5cd"
 ICON_ADD = "\ue145"
 ICON_REMOVE = "\ue15b"
+ICON_CROP = "\ue3be"
 
 
 # ─── Кнопки ───────────────────────────────────────────────────

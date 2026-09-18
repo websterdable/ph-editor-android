@@ -326,3 +326,69 @@ def crop(rgb_bytes, w, h, x, y, cw, ch):
         dst_start = row * cw * 3
         out[dst_start:dst_start + cw * 3] = rgb_bytes[src_start:src_start + cw * 3]
     return bytes(out), cw, ch
+
+
+def text_overlay(rgb_bytes, w, h, text, font_size=48,
+                 color=(255, 255, 255, 255),
+                 x_ratio=0.5, y_ratio=0.5):
+    """Наложить текст по центру (или в указанной точке) на фото.
+
+    Рендерит текст через Kivy CoreLabel в Texture, затем смешивает
+    пиксели с исходным RGB. Возвращает bytes.
+    """
+    if not text:
+        return rgb_bytes
+    try:
+        from kivy.core.text import Label as CoreLabel
+        label = CoreLabel(text=text, font_size=font_size, color=color)
+        label.refresh()
+        tex = label.texture
+        if tex is None:
+            return rgb_bytes
+        tw, th = tex.size
+        tpixels = tex.pixels  # RGBA, снизу вверх
+        out = bytearray(rgb_bytes)
+        start_x = int(w * x_ratio - tw / 2)
+        start_y = int(h * y_ratio - th / 2)
+        for ty in range(th):
+            for tx in range(tw):
+                src_idx = ((th - 1 - ty) * tw + tx) * 4
+                a = tpixels[src_idx + 3]
+                if a == 0:
+                    continue
+                r = tpixels[src_idx]
+                g = tpixels[src_idx + 1]
+                b = tpixels[src_idx + 2]
+                fx = start_x + tx
+                fy = start_y + ty
+                if 0 <= fx < w and 0 <= fy < h:
+                    idx = (fy * w + fx) * 3
+                    alpha = a / 255.0
+                    out[idx]     = int(r * alpha + out[idx]     * (1 - alpha))
+                    out[idx + 1] = int(g * alpha + out[idx + 1] * (1 - alpha))
+                    out[idx + 2] = int(b * alpha + out[idx + 2] * (1 - alpha))
+        return bytes(out)
+    except Exception as e:
+        from kivy.logger import Logger
+        Logger.error(f"text_overlay: {e}")
+        return rgb_bytes
+
+
+def crop_centered(rgb_bytes, w, h, aspect_w, aspect_h):
+    """Центрированный кроп до заданной пропорции.
+
+    aspect_w / aspect_h: например, 1/1, 4/5, 16/9.
+    Возвращает (bytes, new_w, new_h).
+    """
+    target = aspect_w / aspect_h
+    current = w / h
+    if current > target:
+        # слишком широкое — обрезаем по бокам
+        new_w = int(h * target)
+        new_h = h
+    else:
+        new_w = w
+        new_h = int(w / target)
+    x = (w - new_w) // 2
+    y = (h - new_h) // 2
+    return crop(rgb_bytes, w, h, x, y, new_w, new_h)
