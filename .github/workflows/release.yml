@@ -1,0 +1,101 @@
+name: Release APK
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git zip unzip openjdk-17-jdk \
+            autoconf automake libtool libltdl-dev pkg-config \
+            zlib1g-dev libncurses-dev libtinfo6 cmake \
+            libffi-dev libssl-dev aidl
+
+      - name: Install Buildozer
+        run: |
+          pip install --upgrade pip
+          pip install buildozer cython==0.29.34
+
+      - name: Cache Buildozer global directory
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: buildozer-release-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-release-
+
+      - name: Clean local Buildozer cache
+        run: rm -rf .buildozer
+
+      - name: Build APK
+        run: |
+          buildozer -v android release 2>&1 | tee build.log
+        timeout-minutes: 120
+
+      - name: Upload Build Log (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+
+      - name: Rename APK
+        run: |
+          mkdir -p out
+          for f in bin/*.apk; do
+            cp "$f" "out/PhotoAI-${{ github.ref_name }}.apk"
+          done
+          ls -lh out/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: PhotoAI ${{ github.ref_name }}
+          body: |
+            ## PhotoAI ${{ github.ref_name }}
+
+            Полностью офлайн-редактор фото с ИИ (в разработке).
+
+            ### Возможности
+            - Редактор: яркость, контраст, экспозиция, насыщенность, резкость, hue
+            - Свет: тени, света, S-кривая, тепло/холод
+            - 18 фильтров
+            - Кроп: пресеты 1:1, 4:5, 3:2, 16:9, 9:16 + ручной
+            - Текст на фото
+            - Инструменты: JPEG/PNG/WebP, качество, размер
+            - Сравнение «до/после»
+            - Экспорт в галерею
+
+            ### Приватность
+            - 0 сетевых запросов
+            - Нет разрешения INTERNET в манифесте
+            - EXIF удаляется
+            - Всё работает локально
+
+            ### Установка
+            1. Скачайте APK
+            2. Разрешите установку из неизвестных источников
+            3. Откройте PhotoAI
+          files: |
+            out/PhotoAI-${{ github.ref_name }}.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

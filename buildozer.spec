@@ -7,7 +7,7 @@ source.dir = .
 source.include_exts = py,png,jpg,jpeg,kv,atlas,onnx,ttf
 source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,tools,p4a-recipes
 
-version = 0.4.0
+version = 0.5.0
 
 requirements = python3==3.10.11,kivy==2.2.1,pyjnius
 

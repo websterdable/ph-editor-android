@@ -4,6 +4,7 @@ from kivy.core.window import Window
 from kivy.uix.screenmanager import ScreenManager, NoTransition
 
 from app.ui.theme import theme
+from app.ui.overlay import attach_overlay
 from app.ui.splash_screen import SplashScreen
 from app.ui.home_screen import HomeScreen
 from app.ui.editor_screen import EditorScreen
@@ -34,11 +35,13 @@ class PhotoAIApp(App):
         Clock.schedule_once(lambda dt: Window.canvas.ask_update(), 0.05)
         Clock.schedule_once(lambda dt: Window.canvas.ask_update(), 0.3)
 
+        # Оверлей загрузки поверх всего
+        Clock.schedule_once(lambda dt: attach_overlay(sm), 0.1)
+
         return sm
 
     def _goto_home(self, sm):
         sm.current = "home"
-        # Ещё раз просим перерисовку после перехода
         Clock.schedule_once(lambda dt: Window.canvas.ask_update(), 0.1)
 
 

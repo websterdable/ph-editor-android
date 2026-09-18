@@ -20,6 +20,7 @@ from app.ui.widgets import (
     PillButton, IconButton, SliderRow,
     ICON_BACK, ICON_SAVE, ICON_UPLOAD,
 )
+from app.ui.overlay import show_loading, hide_loading
 
 
 def _app_dir():
@@ -291,6 +292,8 @@ class ToolsScreen(Screen):
         if self.source_path is None:
             self.info.text = "Сначала откройте фото"
             return
+        show_loading("Обработка…")
+
         ext_map = {"PNG": ".png", "JPEG": ".jpg", "WEBP": ".webp"}
         ext = ext_map[self.target_format]
         ts = time.strftime("%Y%m%d_%H%M%S")
@@ -302,31 +305,32 @@ class ToolsScreen(Screen):
             tw = int(self.w * self.scale)
             th = int(self.h * self.scale)
 
-        self.info.text = "Обработка…"
+        try:
+            ok = iu.save_as_android(
+                self.source_path, out_path,
+                fmt=self.target_format,
+                quality=self.target_quality,
+                target_w=tw, target_h=th,
+            )
+            if not ok:
+                self.info.text = "Ошибка сохранения"
+                hide_loading()
+                return
 
-        ok = iu.save_as_android(
-            self.source_path, out_path,
-            fmt=self.target_format,
-            quality=self.target_quality,
-            target_w=tw, target_h=th,
-        )
-        if not ok:
-            self.info.text = "Ошибка сохранения"
-            return
+            size_kb = os.path.getsize(out_path) // 1024
+            msg = f"Готово: {os.path.basename(out_path)} · {size_kb} КБ"
 
-        size_kb = os.path.getsize(out_path) // 1024
-        msg = f"Готово: {os.path.basename(out_path)} · {size_kb} КБ"
+            if to_gallery:
+                mime = {"PNG": "image/png", "JPEG": "image/jpeg",
+                        "WEBP": "image/webp"}[self.target_format]
+                if save_to_gallery(out_path, mime=mime):
+                    msg += " · в галерее"
 
-        if to_gallery:
-            mime = {
-                "PNG": "image/png",
-                "JPEG": "image/jpeg",
-                "WEBP": "image/webp",
-            }[self.target_format]
-            if save_to_gallery(out_path, mime=mime):
-                msg += " · в галерее"
-
-        self.info.text = msg
+            self.info.text = msg
+        except Exception as e:
+            self.info.text = f"Ошибка: {e}"
+        finally:
+            hide_loading()
 
     def _back(self):
         self.manager.current = "home"
