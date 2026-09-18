@@ -52,17 +52,17 @@ class EditorScreen(Screen):
 
         # Верхняя панель
         top = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
-        top.add_widget(PillButton(text="←", size_hint_x=None, width=dp(48),
+        top.add_widget(PillButton(text="<", size_hint_x=None, width=dp(48),
                                    variant="secondary",
                                    on_release=lambda *_: self._back()))
         top.add_widget(Label(text="Редактор", font_size=dp(15), color=theme.text))
-        top.add_widget(PillButton(text="↶", size_hint_x=None, width=dp(48),
+        top.add_widget(PillButton(text="Отмена", size_hint_x=None, width=dp(48),
                                    variant="ghost",
                                    on_release=lambda *_: self._undo_step()))
-        top.add_widget(PillButton(text="↷", size_hint_x=None, width=dp(48),
+        top.add_widget(PillButton(text="Повтор", size_hint_x=None, width=dp(48),
                                    variant="ghost",
                                    on_release=lambda *_: self._redo_step()))
-        top.add_widget(PillButton(text="✓", size_hint_x=None, width=dp(48),
+        top.add_widget(PillButton(text="Ок", size_hint_x=None, width=dp(48),
                                    variant="primary",
                                    on_release=lambda *_: self._save_all()))
         root.add_widget(top)
@@ -253,19 +253,19 @@ class EditorScreen(Screen):
 
     def _build_geom(self):
         self.tools_panel.add_widget(PillButton(
-            text="↻ Повернуть вправо", variant="secondary",
+            text="Повернуть вправо", variant="secondary",
             size_hint_y=None, height=dp(40),
             on_release=lambda *_: self._rotate(True)))
         self.tools_panel.add_widget(PillButton(
-            text="↺ Повернуть влево", variant="secondary",
+            text="Повернуть влево", variant="secondary",
             size_hint_y=None, height=dp(40),
             on_release=lambda *_: self._rotate(False)))
         self.tools_panel.add_widget(PillButton(
-            text="↔ Отразить Г", variant="secondary",
+            text="Отразить горизонтально", variant="secondary",
             size_hint_y=None, height=dp(40),
             on_release=lambda *_: self._flip("h")))
         self.tools_panel.add_widget(PillButton(
-            text="↕ Отразить В", variant="secondary",
+            text="Отразить вертикально", variant="secondary",
             size_hint_y=None, height=dp(40),
             on_release=lambda *_: self._flip("v")))
 
@@ -317,7 +317,7 @@ class EditorScreen(Screen):
             self._set_status("Ошибка сохранения")
             return
         if save_to_gallery(tmp, mime="image/png"):
-            self._set_status("✓ Сохранено в галерею")
+            self._set_status("Сохранено в галерею")
         else:
             self._set_status("Не удалось экспортировать")
 

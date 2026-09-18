@@ -12,7 +12,7 @@ from app.ui.widgets import PillButton
 
 class ModuleCard(BoxLayout):
     """Кликабельная карточка с иконкой, названием и описанием модуля."""
-    def __init__(self, icon="★", title="", subtitle="", on_press=None, **kwargs):
+    def __init__(self, icon="AI", title="", subtitle="", on_press=None, **kwargs):
         super().__init__(orientation="horizontal", size_hint_y=None, height=dp(110),
                          padding=dp(14), spacing=dp(12), **kwargs)
         with self.canvas.before:
@@ -74,23 +74,20 @@ class HomeScreen(Screen):
                       color=theme.text, halign="left", valign="middle")
         title.bind(size=lambda *_: setattr(title, "text_size", title.size))
         header.add_widget(title)
-        theme_btn = PillButton(text="☀", size_hint_x=None, width=dp(48),
-                               variant="secondary")
-        theme_btn.bind(on_release=lambda *_: theme.toggle())
-        header.add_widget(theme_btn)
+
         root.add_widget(header)
 
         # Карточки модулей
         root.add_widget(ModuleCard(
-            icon="✎", title="Редактор",
+            icon="REDr", title="Редактор",
             subtitle="Базовые правки, фильтры, геометрия",
             on_press=lambda: self._go("editor")))
         root.add_widget(ModuleCard(
-            icon="◆", title="Инструменты",
+            icon="T", title="Инструменты",
             subtitle="Размер, формат, сжатие, пакетно",
             on_press=lambda: self._go("tools")))
         root.add_widget(ModuleCard(
-            icon="★", title="ИИ-Редактор",
+            icon="AI", title="ИИ-Редактор",
             subtitle="Апскейл, лица, фон, колоризация",
             on_press=lambda: self._go("ai")))
 

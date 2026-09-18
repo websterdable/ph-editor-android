@@ -21,6 +21,7 @@ android.ndk = 25b
 android.ndk_api = 24
 android.accept_sdk_license = True
 android.archs = arm64-v8a
+android.apptheme = @android:style/Theme.NoTitleBar.Fullscreen
 
 android.permissions = READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,WRITE_EXTERNAL_STORAGE
 android.private_storage = True

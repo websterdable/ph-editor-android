@@ -39,8 +39,6 @@ class PillButton(Button):
         self.color = theme.text
         self.font_size = dp(14)
         self.variant = variant
-        # Явно задаём шрифт без эмодзи
-        self.font_name = "Roboto"
         with self.canvas.before:
             self._color = Color(0, 0, 0, 0)
             self._rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(20)])

@@ -15,10 +15,10 @@ class AIScreen(Screen):
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
 
         top = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
-        top.add_widget(PillButton(text="←", size_hint_x=None, width=dp(48),
+        top.add_widget(PillButton(text="<", size_hint_x=None, width=dp(48),
                                    variant="secondary",
                                    on_release=lambda *_: self._back()))
-        top.add_widget(Label(text="★ ИИ-Редактор", font_size=dp(16),
+        top.add_widget(Label(text="ИИ-Редактор", font_size=dp(16),
                               color=theme.text))
         root.add_widget(top)
 
