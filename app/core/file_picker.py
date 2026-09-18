@@ -1,14 +1,22 @@
 """Нативный Android-выбор фото из галереи.
 
-Декодирует любое изображение через Android BitmapFactory и сохраняет
-как JPEG — это работает с HEIC, PNG, WebP и любыми странными форматами.
+Callback всегда выполняется в главном Kivy-потоке через Clock.schedule_once,
+иначе Kivy падает с "Cannot create graphics instruction outside the main Kivy thread".
 """
 import os
+from kivy.clock import Clock
 from kivy.logger import Logger
 from kivy.utils import platform
 
 REQUEST_CODE = 0x5A11
 _callback = None
+
+
+def _invoke(cb, value):
+    """Вызвать callback в главном Kivy-потоке."""
+    if cb is None:
+        return
+    Clock.schedule_once(lambda dt: cb(value), 0)
 
 
 def _on_activity_result(request_code, result_code, intent):
@@ -27,39 +35,33 @@ def _on_activity_result(request_code, result_code, intent):
 
         if result_code != Activity.RESULT_OK or intent is None:
             Logger.info("file_picker: пользователь отменил")
-            if cb:
-                cb(None)
+            _invoke(cb, None)
             return
 
         uri = intent.getData()
-        Logger.info(f"file_picker: uri = {uri}")
+        Logger.info(f"file_picker: uri получен")
         if uri is None:
-            if cb:
-                cb(None)
+            _invoke(cb, None)
             return
 
         activity = PythonActivity.mActivity
         resolver = activity.getContentResolver()
         cache_dir = activity.getCacheDir().getAbsolutePath()
 
-        # Открываем поток и декодируем через BitmapFactory
         in_stream = resolver.openInputStream(uri)
         bitmap = BitmapFactory.decodeStream(in_stream)
         in_stream.close()
 
         if bitmap is None:
             Logger.error("file_picker: BitmapFactory вернул None")
-            if cb:
-                cb(None)
+            _invoke(cb, None)
             return
 
         bmp_w = bitmap.getWidth()
         bmp_h = bitmap.getHeight()
         Logger.info(f"file_picker: decoded {bmp_w}x{bmp_h}")
 
-        # Сохраняем как JPEG
         out_path = os.path.join(cache_dir, "picked_photo.jpg")
-        # Удаляем старый файл, если есть
         if os.path.exists(out_path):
             os.remove(out_path)
 
@@ -74,17 +76,14 @@ def _on_activity_result(request_code, result_code, intent):
 
         if size == 0:
             Logger.error("file_picker: сохранено 0 байт")
-            if cb:
-                cb(None)
+            _invoke(cb, None)
             return
 
-        if cb:
-            cb(out_path)
+        _invoke(cb, out_path)
 
     except Exception as e:
         Logger.exception(f"file_picker: ошибка: {e}")
-        if cb:
-            cb(None)
+        _invoke(cb, None)
 
 
 def _pick_android(callback):
@@ -111,12 +110,12 @@ def _pick_android(callback):
         PythonActivity.mActivity.startActivityForResult(intent, REQUEST_CODE)
     except Exception as e:
         Logger.exception(f"file_picker: не удалось запустить: {e}")
-        callback(None)
+        _invoke(callback, None)
 
 
 def _pick_desktop(callback):
     Logger.warning("file_picker: desktop не поддерживается")
-    callback(None)
+    _invoke(callback, None)
 
 
 def pick_image(callback):
