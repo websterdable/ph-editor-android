@@ -10,9 +10,11 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 version = 0.4.0
 
 requirements = python3==3.10.11,kivy==2.2.1,pyjnius
+
 p4a.branch = v2023.09.16
 
 orientation = all
+fullscreen = 1
 icon.filename = %(source.dir)s/assets/icons/icon.png
 
 android.api = 33
@@ -21,7 +23,6 @@ android.ndk = 25b
 android.ndk_api = 24
 android.accept_sdk_license = True
 android.archs = arm64-v8a
-android.apptheme = @android:style/Theme.NoTitleBar.Fullscreen
 
 android.permissions = READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,WRITE_EXTERNAL_STORAGE
 android.private_storage = True
