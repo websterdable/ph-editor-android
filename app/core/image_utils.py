@@ -11,17 +11,29 @@ from kivy.logger import Logger
 
 def load_image(path):
     """Загрузить файл -> (rgb_bytes, width, height) или None."""
-    if not path or not os.path.exists(path):
+    if not path:
+        Logger.error("load_image: path пустой")
+        return None
+    if not os.path.exists(path):
         Logger.error(f"load_image: файл не существует: {path}")
         return None
+
     try:
+        size = os.path.getsize(path)
+        Logger.info(f"load_image: открываю {path} ({size} байт)")
+        if size == 0:
+            Logger.error("load_image: файл пустой")
+            return None
+
         core = CoreImage(path, keep_data=True)
         w, h = core.texture.size
         pixels = core.texture.pixels
+        Logger.info(f"load_image: {w}x{h}, pixels len = {len(pixels) if pixels else 0}")
+
         if not pixels:
             Logger.error("load_image: пустые пиксели")
             return None
-        # RGBA -> RGB через срезы
+
         r = pixels[0::4]
         g = pixels[1::4]
         b = pixels[2::4]
@@ -29,10 +41,10 @@ def load_image(path):
         rgb[0::3] = r
         rgb[1::3] = g
         rgb[2::3] = b
-        Logger.info(f"load_image: {w}x{h}, {len(rgb)} байт")
+        Logger.info(f"load_image: OK, {len(rgb)} байт RGB")
         return bytes(rgb), w, h
     except Exception as e:
-        Logger.error(f"load_image: {e}")
+        Logger.exception(f"load_image: ошибка: {e}")
         return None
 
 
