@@ -4,7 +4,7 @@ package.name = photoai
 package.domain = org.local
 
 source.dir = .
-source.include_exts = py,png,jpg,jpeg,kv,atlas,onnx
+source.include_exts = py,png,jpg,jpeg,kv,atlas,onnx,ttf
 source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,tools,p4a-recipes
 
 version = 0.4.0

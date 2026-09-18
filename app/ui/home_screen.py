@@ -3,60 +3,13 @@ from kivy.metrics import dp
 from kivy.uix.screenmanager import Screen
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
-from kivy.uix.button import Button
-from kivy.graphics import Color, RoundedRectangle
+from kivy.graphics import Color, Rectangle
 
 from app.ui.theme import theme
-from app.ui.widgets import PillButton
-
-
-class ModuleCard(BoxLayout):
-    """Кликабельная карточка с иконкой, названием и описанием модуля."""
-    def __init__(self, icon="AI", title="", subtitle="", on_press=None, **kwargs):
-        super().__init__(orientation="horizontal", size_hint_y=None, height=dp(110),
-                         padding=dp(14), spacing=dp(12), **kwargs)
-        with self.canvas.before:
-            self._color = Color(*theme.surface)
-            self._rect = RoundedRectangle(pos=self.pos, size=self.size, radius=[dp(18)])
-        self.bind(pos=self._upd, size=self._upd)
-        theme.bind(surface=self._upd_color)
-
-        ic = Label(text=icon, font_size=dp(34), size_hint_x=0.18,
-                   color=theme.accent)
-        self.add_widget(ic)
-
-        text_box = BoxLayout(orientation="vertical")
-        t = Label(text=title, bold=True, font_size=dp(17), color=theme.text,
-                  halign="left", valign="bottom")
-        t.bind(size=lambda *_: setattr(t, "text_size", t.size))
-        text_box.add_widget(t)
-        s = Label(text=subtitle, font_size=dp(12), color=theme.text_muted,
-                  halign="left", valign="top")
-        s.bind(size=lambda *_: setattr(s, "text_size", s.size))
-        text_box.add_widget(s)
-        self.add_widget(text_box)
-
-        self._on_press = on_press
-        theme.bind(text=self._upd_color, text_muted=self._upd_color)
-
-    def _upd(self, *_):
-        self._rect.pos = self.pos
-        self._rect.size = self.size
-
-    def _upd_color(self, *_):
-        self._color.rgba = theme.surface
-
-    def on_touch_down(self, touch):
-        if self.collide_point(*touch.pos):
-            self.opacity = 0.85
-        return super().on_touch_down(touch)
-
-    def on_touch_up(self, touch):
-        self.opacity = 1.0
-        if self.collide_point(*touch.pos) and self._on_press:
-            self._on_press()
-            return True
-        return super().on_touch_up(touch)
+from app.ui.widgets import (
+    ModuleCard, IconButton,
+    ICON_EDITOR, ICON_TOOLS, ICON_AI, ICON_THEME,
+)
 
 
 class HomeScreen(Screen):
@@ -69,53 +22,51 @@ class HomeScreen(Screen):
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(14))
 
         # Шапка
-        header = BoxLayout(size_hint_y=None, height=dp(60))
-        title = Label(text="[b]PhotoAI[/b]", markup=True, font_size=dp(26),
-                      color=theme.text, halign="left", valign="middle")
+        header = BoxLayout(size_hint_y=None, height=dp(60), spacing=dp(6))
+        title = Label(text="PhotoAI", font_name=theme.font_bold,
+                      font_size=dp(28), color=theme.text,
+                      halign="left", valign="middle")
         title.bind(size=lambda *_: setattr(title, "text_size", title.size))
         header.add_widget(title)
 
+        theme_btn = IconButton(icon=ICON_THEME, variant="secondary",
+                                size_hint=(None, None), size=(dp(48), dp(48)))
+        theme_btn.bind(on_release=lambda *_: theme.toggle())
+        header.add_widget(theme_btn)
         root.add_widget(header)
 
-        # Карточки модулей
         root.add_widget(ModuleCard(
-            icon="REDr", title="Редактор",
-            subtitle="Базовые правки, фильтры, геометрия",
+            icon=ICON_EDITOR, title="Редактор",
+            subtitle="Коррекция, фильтры, кроп, текст",
             on_press=lambda: self._go("editor")))
         root.add_widget(ModuleCard(
-            icon="T", title="Инструменты",
-            subtitle="Размер, формат, сжатие, пакетно",
+            icon=ICON_TOOLS, title="Инструменты",
+            subtitle="Формат, размер, качество, EXIF",
             on_press=lambda: self._go("tools")))
         root.add_widget(ModuleCard(
-            icon="AI", title="ИИ-Редактор",
-            subtitle="Апскейл, лица, фон, колоризация",
+            icon=ICON_AI, title="ИИ-Редактор",
+            subtitle="Скоро: апскейл, лица, фон",
             on_press=lambda: self._go("ai")))
 
-        root.add_widget(BoxLayout())  # spacer
+        root.add_widget(BoxLayout())
 
-        version = Label(text="v0.3.0 · offline · 0 сетевых запросов",
+        version = Label(text="v0.5.0 · offline · Private by design",
+                        font_name=theme.font_regular,
                         font_size=dp(11), color=theme.text_muted,
                         size_hint_y=None, height=dp(24))
         root.add_widget(version)
 
         self.add_widget(root)
-        theme.bind(text=self._upd_text)
 
     def _upd_bg(self, *_):
         self.canvas.before.clear()
         with self.canvas.before:
             Color(*theme.bg)
-            from kivy.graphics import Rectangle
             self._bg = Rectangle(pos=self.pos, size=self.size)
-        self.bind(pos=self._upd_bg_rect, size=self._upd_bg_rect)
-
-    def _upd_bg_rect(self, *_):
+        self.bind(pos=self._upd_bg, size=self._upd_bg)
         if hasattr(self, "_bg"):
             self._bg.pos = self.pos
             self._bg.size = self.size
-
-    def _upd_text(self, *_):
-        pass
 
     def _go(self, name):
         self.manager.current = name

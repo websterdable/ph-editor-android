@@ -32,6 +32,8 @@ def _on_activity_result(request_code, result_code, intent):
         BitmapFactory = autoclass("android.graphics.BitmapFactory")
         BitmapCompressFormat = autoclass("android.graphics.Bitmap$CompressFormat")
         FileOutputStream = autoclass("java.io.FileOutputStream")
+        ExifInterface = autoclass("android.media.ExifInterface")
+        Matrix = autoclass("android.graphics.Matrix")
 
         if result_code != Activity.RESULT_OK or intent is None:
             Logger.info("file_picker: пользователь отменил")
@@ -39,7 +41,6 @@ def _on_activity_result(request_code, result_code, intent):
             return
 
         uri = intent.getData()
-        Logger.info(f"file_picker: uri получен")
         if uri is None:
             _invoke(cb, None)
             return
@@ -48,34 +49,91 @@ def _on_activity_result(request_code, result_code, intent):
         resolver = activity.getContentResolver()
         cache_dir = activity.getCacheDir().getAbsolutePath()
 
+        # 1. Копируем содержимое во временный файл — нужен путь для ExifInterface
+        temp_in = os.path.join(cache_dir, "input_temp.jpg")
+        if os.path.exists(temp_in):
+            os.remove(temp_in)
         in_stream = resolver.openInputStream(uri)
-        bitmap = BitmapFactory.decodeStream(in_stream)
+        with open(temp_in, "wb") as f:
+            buf = bytearray(65536)
+            while True:
+                n = in_stream.read(buf)
+                if n <= 0:
+                    break
+                f.write(buf[:n])
         in_stream.close()
 
+        # 2. Читаем ориентацию из EXIF
+        orientation = ExifInterface.ORIENTATION_NORMAL
+        try:
+            exif = ExifInterface(temp_in)
+            orientation = exif.getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        except Exception as e:
+            Logger.warning(f"file_picker: EXIF failed -> {e}")
+
+        # 3. Декодируем Bitmap
+        bitmap = BitmapFactory.decodeFile(temp_in)
         if bitmap is None:
             Logger.error("file_picker: BitmapFactory вернул None")
             _invoke(cb, None)
             return
 
-        bmp_w = bitmap.getWidth()
-        bmp_h = bitmap.getHeight()
-        Logger.info(f"file_picker: decoded {bmp_w}x{bmp_h}")
+        # 4. Применяем поворот по EXIF
+        try:
+            if orientation != ExifInterface.ORIENTATION_NORMAL:
+                matrix = Matrix()
+                if orientation == ExifInterface.ORIENTATION_ROTATE_90:
+                    matrix.postRotate(90)
+                elif orientation == ExifInterface.ORIENTATION_ROTATE_180:
+                    matrix.postRotate(180)
+                elif orientation == ExifInterface.ORIENTATION_ROTATE_270:
+                    matrix.postRotate(270)
+                elif orientation == ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
+                    matrix.postScale(-1, 1)
+                elif orientation == ExifInterface.ORIENTATION_FLIP_VERTICAL:
+                    matrix.postScale(1, -1)
+                elif orientation == ExifInterface.ORIENTATION_TRANSPOSE:
+                    matrix.postRotate(90)
+                    matrix.postScale(-1, 1)
+                elif orientation == ExifInterface.ORIENTATION_TRANSVERSE:
+                    matrix.postRotate(270)
+                    matrix.postScale(-1, 1)
 
+                rotated = BitmapFactory.decodeFile(temp_in)  # свежая копия
+                new_bitmap = autoclass("android.graphics.Bitmap").createBitmap(
+                    rotated, 0, 0,
+                    rotated.getWidth(), rotated.getHeight(),
+                    matrix, True,
+                )
+                rotated.recycle()
+                bitmap.recycle()
+                bitmap = new_bitmap
+                Logger.info(f"file_picker: применён поворот EXIF={orientation}")
+        except Exception as e:
+            Logger.warning(f"file_picker: rotate failed -> {e}")
+
+        # 5. Сохраняем как JPEG
         out_path = os.path.join(cache_dir, "picked_photo.jpg")
         if os.path.exists(out_path):
             os.remove(out_path)
-
         out_stream = FileOutputStream(out_path)
         bitmap.compress(BitmapCompressFormat.JPEG, 95, out_stream)
         out_stream.flush()
         out_stream.close()
         bitmap.recycle()
 
+        # Удаляем временный
+        try:
+            os.remove(temp_in)
+        except Exception:
+            pass
+
         size = os.path.getsize(out_path)
         Logger.info(f"file_picker: saved {size} bytes -> {out_path}")
-
         if size == 0:
-            Logger.error("file_picker: сохранено 0 байт")
             _invoke(cb, None)
             return
 

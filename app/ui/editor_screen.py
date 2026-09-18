@@ -18,6 +18,12 @@ from app.core.exporter import save_to_gallery
 from app.ui.theme import theme
 from app.ui.widgets import PillButton, SliderRow
 
+from app.ui.widgets import (
+    PillButton, SliderRow, IconButton,
+    ICON_BACK, ICON_UNDO, ICON_REDO, ICON_SAVE,
+    ICON_ROTATE_R, ICON_ROTATE_L, ICON_FLIP,
+)
+
 
 def _app_dir():
     try:
@@ -51,20 +57,26 @@ class EditorScreen(Screen):
         root = BoxLayout(orientation="vertical", padding=dp(8), spacing=dp(6))
 
         # Верхняя панель
-        top = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
-        top.add_widget(PillButton(text="<", size_hint_x=None, width=dp(48),
-                                   variant="secondary",
-                                   on_release=lambda *_: self._back()))
-        top.add_widget(Label(text="Редактор", font_size=dp(15), color=theme.text))
-        top.add_widget(PillButton(text="Отмена", size_hint_x=None, width=dp(48),
-                                   variant="ghost",
-                                   on_release=lambda *_: self._undo_step()))
-        top.add_widget(PillButton(text="Повтор", size_hint_x=None, width=dp(48),
-                                   variant="ghost",
-                                   on_release=lambda *_: self._redo_step()))
-        top.add_widget(PillButton(text="Ок", size_hint_x=None, width=dp(48),
-                                   variant="primary",
-                                   on_release=lambda *_: self._save_all()))
+        top = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(4))
+        top.add_widget(IconButton(
+            icon=ICON_BACK, variant="ghost",
+            size_hint=(None, None), size=(dp(44), dp(44)),
+            on_release=lambda *_: self._back()))
+        self.title_lbl = Label(text="Редактор", font_name=theme.font_medium,
+                                font_size=dp(16), color=theme.text)
+        top.add_widget(self.title_lbl)
+        top.add_widget(IconButton(
+            icon=ICON_UNDO, variant="ghost",
+            size_hint=(None, None), size=(dp(44), dp(44)),
+            on_release=lambda *_: self._undo_step()))
+        top.add_widget(IconButton(
+            icon=ICON_REDO, variant="ghost",
+            size_hint=(None, None), size=(dp(44), dp(44)),
+            on_release=lambda *_: self._redo_step()))
+        top.add_widget(IconButton(
+            icon=ICON_SAVE, variant="primary",
+            size_hint=(None, None), size=(dp(44), dp(44)),
+            on_release=lambda *_: self._save_all()))
         root.add_widget(top)
 
         self.preview = KivyImage(size_hint=(1, 1), allow_stretch=True,
@@ -252,22 +264,22 @@ class EditorScreen(Screen):
         self._set_status(f"Фильтр: {name}")
 
     def _build_geom(self):
-        self.tools_panel.add_widget(PillButton(
-            text="Повернуть вправо", variant="secondary",
-            size_hint_y=None, height=dp(40),
-            on_release=lambda *_: self._rotate(True)))
-        self.tools_panel.add_widget(PillButton(
-            text="Повернуть влево", variant="secondary",
-            size_hint_y=None, height=dp(40),
-            on_release=lambda *_: self._rotate(False)))
-        self.tools_panel.add_widget(PillButton(
-            text="Отразить горизонтально", variant="secondary",
-            size_hint_y=None, height=dp(40),
-            on_release=lambda *_: self._flip("h")))
-        self.tools_panel.add_widget(PillButton(
-            text="Отразить вертикально", variant="secondary",
-            size_hint_y=None, height=dp(40),
-            on_release=lambda *_: self._flip("v")))
+        for txt, icon, cb in [
+            ("Повернуть вправо", ICON_ROTATE_R, lambda *_: self._rotate(True)),
+            ("Повернуть влево",  ICON_ROTATE_L, lambda *_: self._rotate(False)),
+            ("Отразить гориз.",  ICON_FLIP,     lambda *_: self._flip("h")),
+            ("Отразить верт.",   ICON_FLIP,     lambda *_: self._flip("v")),
+        ]:
+            row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
+            b = IconButton(icon=icon, variant="secondary",
+                            size_hint=(None, None), size=(dp(44), dp(44)))
+            b.bind(on_release=cb)
+            row.add_widget(b)
+            lbl = Label(text=txt, color=theme.text, font_name=theme.font_regular,
+                        font_size=dp(13), halign="left", valign="middle")
+            lbl.bind(size=lambda *_: setattr(lbl, "text_size", lbl.size))
+            row.add_widget(lbl)
+            self.tools_panel.add_widget(row)
 
     def _rotate(self, cw):
         if self.current is None:
