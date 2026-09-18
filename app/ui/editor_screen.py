@@ -23,9 +23,10 @@ from kivy.uix.popup import Popup
 from app.ui.widgets import (
     PillButton, SliderRow, IconButton,
     ICON_BACK, ICON_UNDO, ICON_REDO, ICON_SAVE,
-    ICON_ROTATE_R, ICON_ROTATE_L, ICON_FLIP, ICON_CROP,
+    ICON_ROTATE_R, ICON_ROTATE_L, ICON_FLIP,
 )
-
+from app.ui.overlay import show_loading, hide_loading
+from kivy.clock import Clock
 
 def _app_dir():
     try:
@@ -350,12 +351,21 @@ class EditorScreen(Screen):
         if self.original is None:
             self._set_status("Сначала откройте фото")
             return
-        self._push_undo()
-        fn = ops.FILTERS[name]
-        b, w, h = self.original
-        self.current = (fn(b, w, h), w, h)
-        self._refresh_preview()
-        self._set_status(f"Фильтр: {name}")
+        show_loading(f"Фильтр: {name}…")
+        Clock.schedule_once(lambda dt: self._do_apply_filter(name), 0.05)
+
+    def _do_apply_filter(self, name):
+        try:
+            self._push_undo()
+            fn = ops.FILTERS[name]
+            b, w, h = self.original
+            self.current = (fn(b, w, h), w, h)
+            self._refresh_preview()
+            self._set_status(f"Фильтр: {name}")
+        except Exception as e:
+            self._set_status(f"Ошибка: {e}")
+        finally:
+            hide_loading()
 
     def _build_geom(self):
         for txt, icon, cb in [
@@ -419,17 +429,27 @@ class EditorScreen(Screen):
         if self.current is None:
             self._set_status("Сначала откройте фото")
             return
-        self._push_undo()
-        b, w, h = self.current
         if ratio is None:
             # «Оригинал» — просто оставить как есть
             self._set_status("Кроп отменён")
             return
-        new_b, new_w, new_h = ops.crop_centered(b, w, h, ratio[0], ratio[1])
-        self.current = (new_b, new_w, new_h)
-        self.original = self.current  # кроп — фундаментальная операция
-        self._refresh_preview()
-        self._set_status(f"Кроп {ratio[0]}:{ratio[1]} · {new_w}×{new_h}")
+        show_loading("Кроп…")
+        Clock.schedule_once(lambda dt: self._do_crop_preset(ratio), 0.05)
+
+    def _do_crop_preset(self, ratio):
+        try:
+            self._push_undo()
+            b, w, h = self.current
+            new_b, new_w, new_h = ops.crop_centered(b, w, h, ratio[0], ratio[1])
+            self.current = (new_b, new_w, new_h)
+            self.original = self.current
+            self._refresh_preview()
+            self._set_status(f"Кроп {ratio[0]}:{ratio[1]} · {new_w}×{new_h}")
+        except Exception as e:
+            self._set_status(f"Ошибка: {e}")
+        finally:
+            hide_loading()
+
 
     def _show_crop_dialog(self):
         if self.current is None:
@@ -489,13 +509,22 @@ class EditorScreen(Screen):
     def _apply_manual_crop(self, x, y, cw, ch):
         if self.current is None:
             return
-        self._push_undo()
-        b, w, h = self.current
-        new_b, new_w, new_h = ops.crop(b, w, h, x, y, cw, ch)
-        self.current = (new_b, new_w, new_h)
-        self.original = self.current
-        self._refresh_preview()
-        self._set_status(f"Кроп · {new_w}×{new_h}")
+        show_loading("Кроп…")
+        Clock.schedule_once(lambda dt: self._do_manual_crop(x, y, cw, ch), 0.05)
+
+    def _do_manual_crop(self, x, y, cw, ch):
+        try:
+            self._push_undo()
+            b, w, h = self.current
+            new_b, new_w, new_h = ops.crop(b, w, h, x, y, cw, ch)
+            self.current = (new_b, new_w, new_h)
+            self.original = self.current
+            self._refresh_preview()
+            self._set_status(f"Кроп · {new_w}×{new_h}")
+        except Exception as e:
+            self._set_status(f"Ошибка: {e}")
+        finally:
+            hide_loading()
 
     # ─── Текст на фото ──────────────────────────────────────
 
@@ -584,40 +613,68 @@ class EditorScreen(Screen):
     def _apply_text(self, text, font_size, color):
         if self.current is None:
             return
-        self._push_undo()
-        b, w, h = self.current
-        new_b = ops.text_overlay(b, w, h, text,
-                                  font_size=font_size,
-                                  color=color,
-                                  x_ratio=0.5, y_ratio=0.85)
-        self.current = (new_b, w, h)
-        self._refresh_preview()
-        self._set_status(f"Текст добавлен: «{text[:20]}…»")
+        show_loading("Рендер текста…")
+        Clock.schedule_once(
+            lambda dt: self._do_apply_text(text, font_size, color), 0.05)
+
+    def _do_apply_text(self, text, font_size, color):
+        try:
+            self._push_undo()
+            b, w, h = self.current
+            new_b = ops.text_overlay(b, w, h, text,
+                                      font_size=font_size,
+                                      color=color,
+                                      x_ratio=0.5, y_ratio=0.85)
+            self.current = (new_b, w, h)
+            self._refresh_preview()
+            self._set_status(f"Текст добавлен: «{text[:20]}…»")
+        except Exception as e:
+            self._set_status(f"Ошибка: {e}")
+        finally:
+            hide_loading()
 
     def _rotate(self, cw):
         if self.current is None:
             return
-        self._push_undo()
-        b, w, h = self.current
-        new_b, new_w, new_h = ops.rotate_90(b, w, h, cw)
-        self.current = (new_b, new_w, new_h)
-        self.original = self.current
-        self._refresh_preview()
-        self._set_status("Повёрнуто")
+        show_loading("Поворот…")
+        Clock.schedule_once(lambda dt: self._do_rotate(cw), 0.05)
+
+    def _do_rotate(self, cw):
+        try:
+            self._push_undo()
+            b, w, h = self.current
+            new_b, new_w, new_h = ops.rotate_90(b, w, h, cw)
+            self.current = (new_b, new_w, new_h)
+            self.original = self.current
+            self._refresh_preview()
+            self._set_status("Повёрнуто")
+        except Exception as e:
+            self._set_status(f"Ошибка: {e}")
+        finally:
+            hide_loading()
 
     def _flip(self, direction):
         if self.current is None:
             return
-        self._push_undo()
-        b, w, h = self.current
-        if direction == "h":
-            new_b = ops.flip_h(b, w, h)
-        else:
-            new_b = ops.flip_v(b, w, h)
-        self.current = (new_b, w, h)
-        self.original = self.current
-        self._refresh_preview()
-        self._set_status("Отражено")
+        show_loading("Отражение…")
+        Clock.schedule_once(lambda dt: self._do_flip(direction), 0.05)
+
+    def _do_flip(self, direction):
+        try:
+            self._push_undo()
+            b, w, h = self.current
+            if direction == "h":
+                new_b = ops.flip_h(b, w, h)
+            else:
+                new_b = ops.flip_v(b, w, h)
+            self.current = (new_b, w, h)
+            self.original = self.current
+            self._refresh_preview()
+            self._set_status("Отражено")
+        except Exception as e:
+            self._set_status(f"Ошибка: {e}")
+        finally:
+            hide_loading()
 
     def _save_all(self):
         if self.current is None:
