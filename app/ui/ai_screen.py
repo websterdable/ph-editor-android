@@ -6,7 +6,7 @@ from kivy.uix.label import Label
 from kivy.graphics import Color, Rectangle
 
 from app.ui.theme import theme
-from app.ui.widgets import PillButton
+from app.ui.widgets import PillButton, IconButton, ICON_BACK
 
 
 class AIScreen(Screen):
@@ -14,12 +14,14 @@ class AIScreen(Screen):
         super().__init__(**kwargs)
         root = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(12))
 
-        top = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
-        top.add_widget(PillButton(text="<", size_hint_x=None, width=dp(48),
-                                   variant="secondary",
-                                   on_release=lambda *_: self._back()))
-        top.add_widget(Label(text="ИИ-Редактор", font_size=dp(16),
-                              color=theme.text))
+        top = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(6))
+        top.add_widget(IconButton(
+            icon=ICON_BACK, variant="ghost",
+            size_hint=(None, None), size=(dp(44), dp(44)),
+            on_release=lambda *_: self._back()))
+        top.add_widget(Label(text="ИИ-Редактор",
+                              font_name=theme.font_medium,
+                              font_size=dp(16), color=theme.text))
         root.add_widget(top)
 
         root.add_widget(BoxLayout())  # spacer

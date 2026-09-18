@@ -13,7 +13,10 @@ from app.core.file_picker import pick_image
 from app.core.storage import LocalStorage
 from app.core.exporter import save_to_gallery
 from app.ui.theme import theme
-from app.ui.widgets import PillButton
+from app.ui.widgets import (
+    PillButton, IconButton,
+    ICON_BACK, ICON_SAVE, ICON_UPLOAD,
+)
 
 
 def _app_dir():
@@ -36,12 +39,14 @@ class ToolsScreen(Screen):
     def _build(self):
         root = BoxLayout(orientation="vertical", padding=dp(8), spacing=dp(8))
 
-        top = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
-        top.add_widget(PillButton(text="<", size_hint_x=None, width=dp(48),
-                                   variant="secondary",
-                                   on_release=lambda *_: self._back()))
-        top.add_widget(Label(text="Инструменты", font_size=dp(15),
-                              color=theme.text))
+        top = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(6))
+        top.add_widget(IconButton(
+            icon=ICON_BACK, variant="ghost",
+            size_hint=(None, None), size=(dp(44), dp(44)),
+            on_release=lambda *_: self._back()))
+        top.add_widget(Label(text="Инструменты",
+                              font_name=theme.font_medium,
+                              font_size=dp(16), color=theme.text))
         root.add_widget(top)
 
         self.preview = KivyImage(size_hint=(1, 1), allow_stretch=True,
@@ -57,15 +62,34 @@ class ToolsScreen(Screen):
                                     on_release=lambda *_: self._open(),
                                     size_hint_y=None, height=dp(48)))
 
-        root.add_widget(PillButton(text="Сохранить копию как PNG",
-                                    on_release=lambda *_: self._save_png(),
-                                    variant="primary",
-                                    size_hint_y=None, height=dp(48)))
+        # Сохранить — кнопка с иконкой и текстом
+        save_row = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(8))
+        save_row.add_widget(IconButton(
+            icon=ICON_SAVE, variant="primary",
+            size_hint=(None, None), size=(dp(52), dp(52)),
+            on_release=lambda *_: self._save_png()))
+        save_lbl = Label(text="Сохранить копию",
+                          font_name=theme.font_medium,
+                          font_size=dp(15), color=theme.text,
+                          halign="left", valign="middle")
+        save_lbl.bind(size=lambda *_: setattr(save_lbl, "text_size", save_lbl.size))
+        save_row.add_widget(save_lbl)
+        root.add_widget(save_row)
 
-        root.add_widget(PillButton(text="Экспорт в галерею",
-                                    on_release=lambda *_: self._export(),
-                                    variant="secondary",
-                                    size_hint_y=None, height=dp(48)))
+        # Экспорт — вторичная
+        exp_row = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(8))
+        exp_row.add_widget(IconButton(
+            icon=ICON_UPLOAD, variant="secondary",
+            size_hint=(None, None), size=(dp(52), dp(52)),
+            on_release=lambda *_: self._export()))
+        exp_lbl = Label(text="Экспорт в галерею",
+                         font_name=theme.font_medium,
+                         font_size=dp(15), color=theme.text,
+                         halign="left", valign="middle")
+        exp_lbl.bind(size=lambda *_: setattr(exp_lbl, "text_size", exp_lbl.size))
+        exp_row.add_widget(exp_lbl)
+        root.add_widget(exp_row)
+
 
         hint = Label(
             text="Конвертация в JPEG/WebP будет добавлена позже.\n"
