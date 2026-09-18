@@ -107,6 +107,7 @@ storage.py — SQLite (локально)
 # Клонировать
 git clone https://github.com/websterdable/photoai-android.git
 cd photoai-android
+```
 
 # Виртуальное окружение
 python3.10 -m venv venv
