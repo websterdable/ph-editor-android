@@ -33,7 +33,7 @@ def _app_dir():
         return os.path.join(os.path.expanduser("~"), ".photoai")
 
 
-TABS = ["Базовое", "Тепло", "Фильтры", "Геометрия"]
+TABS = ["Базовое", "Свет", "Фильтры", "Геометрия"]
 
 
 class EditorScreen(Screen):
@@ -205,8 +205,8 @@ class EditorScreen(Screen):
         self.tools_panel.clear_widgets()
         if name == "Базовое":
             self._build_basic()
-        elif name == "Тепло":
-            self._build_warmth()
+        elif name == "Свет":
+            self._build_light()
         elif name == "Фильтры":
             self._build_filters()
         elif name == "Геометрия":
@@ -225,26 +225,91 @@ class EditorScreen(Screen):
             self.current = (ops.contrast(b, v / 100.0 + 0.5), w, h)
             self._refresh_preview()
 
+        def _expo(v):
+            if self.original is None: return
+            b, w, h = self.original
+            self.current = (ops.exposure(b, v - 50), w, h)
+            self._refresh_preview()
+
+        def _satur(v):
+            if self.original is None: return
+            b, w, h = self.original
+            self.current = (ops.saturation(b, v / 50.0), w, h)
+            self._refresh_preview()
+
+        def _sharp(v):
+            if self.original is None: return
+            b, w, h = self.original
+            self.current = (ops.sharpness(b, w, h, v), w, h)
+            self._refresh_preview()
+
+        def _hue(v):
+            if self.original is None: return
+            b, w, h = self.original
+            self.current = (ops.hue_shift(b, (v - 50) * 3.6), w, h)
+            self._refresh_preview()
+
         self.tools_panel.add_widget(SliderRow("Яркость", 0, 100, 50, on_change=_bright))
         self.tools_panel.add_widget(SliderRow("Контраст", 0, 100, 50, on_change=_contrast))
+        self.tools_panel.add_widget(SliderRow("Экспозиция", 0, 100, 50, on_change=_expo))
+        self.tools_panel.add_widget(SliderRow("Насыщенность", 0, 200, 100, on_change=_satur))
+        self.tools_panel.add_widget(SliderRow("Резкость", 0, 200, 0, on_change=_sharp))
+        self.tools_panel.add_widget(SliderRow("Оттенок (Hue)", 0, 100, 50, on_change=_hue))
         self.tools_panel.add_widget(PillButton(
             text="Зафиксировать как шаг",
             on_release=lambda *_: self._push_undo(),
             size_hint_y=None, height=dp(40)))
 
-    def _build_warmth(self):
+    def _build_light(self):
+        def _shadows(v):
+            if self.original is None: return
+            b, w, h = self.original
+            self.current = (ops.shadows(b, v - 50), w, h)
+            self._refresh_preview()
+
+        def _highlights(v):
+            if self.original is None: return
+            b, w, h = self.original
+            self.current = (ops.highlights(b, v - 50), w, h)
+            self._refresh_preview()
+
+        def _scurve(v):
+            if self.original is None: return
+            b, w, h = self.original
+            self.current = (ops.s_curve(b, v - 50), w, h)
+            self._refresh_preview()
+
         def _warm(v):
             if self.original is None: return
             b, w, h = self.original
             self.current = (ops.warmth(b, (v - 50) / 50.0), w, h)
             self._refresh_preview()
+
+        self.tools_panel.add_widget(SliderRow("Тени", 0, 100, 50, on_change=_shadows))
+        self.tools_panel.add_widget(SliderRow("Света", 0, 100, 50, on_change=_highlights))
+        self.tools_panel.add_widget(SliderRow("S-кривая", 0, 100, 50, on_change=_scurve))
         self.tools_panel.add_widget(SliderRow("Тепло/Холод", 0, 100, 50, on_change=_warm))
 
     def _build_filters(self):
         display = {
-            "none": "Без фильтра", "vivid": "Яркий", "film": "Плёночный",
-            "noir": "Ч/Б", "vintage": "Винтаж",
-            "cinematic": "Кино", "cold": "Холодный", "warm": "Тёплый",
+            "none":       "Без фильтра",
+            "vivid":      "Яркий",
+            "vivid+":     "Яркий+",
+            "film":       "Плёночный",
+            "noir":       "Ч/Б контраст",
+            "noir_soft":  "Ч/Б мягкий",
+            "vintage":    "Винтаж",
+            "cinematic":  "Кино",
+            "cold":       "Холодный",
+            "warm":       "Тёплый",
+            "sepia":      "Сепия",
+            "cyanotype":  "Циан",
+            "fade":       "Fade",
+            "dramatic":   "Драма",
+            "retro":      "Ретро",
+            "sunset":     "Закат",
+            "mint":       "Мята",
+            "pink":       "Розовый",
         }
         for name in display:
             btn = PillButton(text=display[name], variant="secondary",
