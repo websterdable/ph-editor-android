@@ -66,6 +66,10 @@ class LoadingOverlay(FloatLayout):
 
     def show(self, text="Обработка…"):
         self.disabled = False
+        # Раскрываем обратно на весь родитель
+        self.size_hint = (1, 1)
+        self.size = self.parent.size if self.parent else (0, 0)
+        self.pos = self.parent.pos if self.parent else (0, 0)
         self._status.text = text
         Animation(opacity=1, duration=0.15).start(self)
         # Пульсация спиннера
@@ -78,9 +82,29 @@ class LoadingOverlay(FloatLayout):
         Animation(opacity=0, duration=0.15).start(self)
         Clock.schedule_once(self._really_hide, 0.2)
         Animation.cancel_all(self._dot)
+    
+    def on_touch_down(self, touch):
+        if self.opacity < 0.1:
+            return False  # пропустить тап вниз, в ScreenManager
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if self.opacity < 0.1:
+            return False
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self.opacity < 0.1:
+            return False
+        return super().on_touch_up(touch)
+
 
     def _really_hide(self, dt):
         self.disabled = True
+        self.opacity = 0
+        # Схлопываем, чтобы виджет не занимал место и не ловил тапы
+        self.size_hint = (None, None)
+        self.size = (0, 0)
 
 
 # Глобальный синглтон (инжектируется в ScreenManager)
