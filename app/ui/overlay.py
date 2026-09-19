@@ -87,11 +87,11 @@ class LoadingOverlay(FloatLayout):
 _overlay = None
 
 
-def attach_overlay(screen_manager):
-    """Добавить оверлей поверх ScreenManager."""
+def attach_overlay(parent):
+    """Добавить оверлей поверх любого контейнера (FloatLayout)."""
     global _overlay
     _overlay = LoadingOverlay()
-    screen_manager.add_widget(_overlay)
+    parent.add_widget(_overlay)
     return _overlay
 
 
