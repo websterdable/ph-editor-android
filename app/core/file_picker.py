@@ -30,6 +30,7 @@ def _on_activity_result(request_code, result_code, intent):
         Activity = autoclass("android.app.Activity")
         PythonActivity = autoclass("org.kivy.android.PythonActivity")
         BitmapFactory = autoclass("android.graphics.BitmapFactory")
+        Bitmap = autoclass("android.graphics.Bitmap")
         BitmapCompressFormat = autoclass("android.graphics.Bitmap$CompressFormat")
         FileOutputStream = autoclass("java.io.FileOutputStream")
         ExifInterface = autoclass("android.media.ExifInterface")
@@ -49,11 +50,13 @@ def _on_activity_result(request_code, result_code, intent):
         resolver = activity.getContentResolver()
         cache_dir = activity.getCacheDir().getAbsolutePath()
 
-        # 1. Копируем содержимое во временный файл — нужен путь для ExifInterface
+        # 1. Копируем content:// в temp через Python (проверенный способ)
         temp_in = os.path.join(cache_dir, "input_temp.jpg")
         if os.path.exists(temp_in):
             os.remove(temp_in)
+
         in_stream = resolver.openInputStream(uri)
+        total = 0
         with open(temp_in, "wb") as f:
             buf = bytearray(65536)
             while True:
@@ -61,61 +64,71 @@ def _on_activity_result(request_code, result_code, intent):
                 if n <= 0:
                     break
                 f.write(buf[:n])
+                total += n
         in_stream.close()
+        Logger.info(f"file_picker: copied {total} bytes")
 
-        # 2. Читаем ориентацию из EXIF
-        orientation = ExifInterface.ORIENTATION_NORMAL
+        # 2. Читаем EXIF (мягко)
+        orientation = 1  # 1 = NORMAL
         try:
             exif = ExifInterface(temp_in)
-            orientation = exif.getAttributeInt(
-                ExifInterface.TAG_ORIENTATION,
-                ExifInterface.ORIENTATION_NORMAL,
-            )
+            orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)
+            Logger.info(f"file_picker: EXIF orientation = {orientation}")
         except Exception as e:
-            Logger.warning(f"file_picker: EXIF failed -> {e}")
+            Logger.warning(f"file_picker: EXIF read failed -> {e}")
 
-        # 3. Декодируем Bitmap
+        # 3. Декодируем bitmap
         bitmap = BitmapFactory.decodeFile(temp_in)
         if bitmap is None:
             Logger.error("file_picker: BitmapFactory вернул None")
             _invoke(cb, None)
             return
 
-        # 4. Применяем поворот по EXIF
-        try:
-            if orientation != ExifInterface.ORIENTATION_NORMAL:
-                matrix = Matrix()
-                if orientation == ExifInterface.ORIENTATION_ROTATE_90:
-                    matrix.postRotate(90)
-                elif orientation == ExifInterface.ORIENTATION_ROTATE_180:
-                    matrix.postRotate(180)
-                elif orientation == ExifInterface.ORIENTATION_ROTATE_270:
-                    matrix.postRotate(270)
-                elif orientation == ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
-                    matrix.postScale(-1, 1)
-                elif orientation == ExifInterface.ORIENTATION_FLIP_VERTICAL:
-                    matrix.postScale(1, -1)
-                elif orientation == ExifInterface.ORIENTATION_TRANSPOSE:
-                    matrix.postRotate(90)
-                    matrix.postScale(-1, 1)
-                elif orientation == ExifInterface.ORIENTATION_TRANSVERSE:
-                    matrix.postRotate(270)
-                    matrix.postScale(-1, 1)
+        Logger.info(f"file_picker: decoded {bitmap.getWidth()}x{bitmap.getHeight()}")
 
-                rotated = BitmapFactory.decodeFile(temp_in)  # свежая копия
-                new_bitmap = autoclass("android.graphics.Bitmap").createBitmap(
-                    rotated, 0, 0,
-                    rotated.getWidth(), rotated.getHeight(),
+        # 4. Поворот ТОЛЬКО для ориентаций 2..8
+        rotate_deg = 0
+        flip_x = False
+        flip_y = False
+        if orientation == 2:
+            flip_x = True
+        elif orientation == 3:
+            rotate_deg = 180
+        elif orientation == 4:
+            flip_y = True
+        elif orientation == 5:
+            rotate_deg = 90
+            flip_x = True
+        elif orientation == 6:
+            rotate_deg = 90
+        elif orientation == 7:
+            rotate_deg = 270
+            flip_x = True
+        elif orientation == 8:
+            rotate_deg = 270
+
+        if rotate_deg or flip_x or flip_y:
+            try:
+                matrix = Matrix()
+                if rotate_deg:
+                    matrix.postRotate(rotate_deg)
+                if flip_x:
+                    matrix.postScale(-1, 1)
+                if flip_y:
+                    matrix.postScale(1, -1)
+                new_bitmap = Bitmap.createBitmap(
+                    bitmap, 0, 0,
+                    bitmap.getWidth(), bitmap.getHeight(),
                     matrix, True,
                 )
-                rotated.recycle()
-                bitmap.recycle()
-                bitmap = new_bitmap
-                Logger.info(f"file_picker: применён поворот EXIF={orientation}")
-        except Exception as e:
-            Logger.warning(f"file_picker: rotate failed -> {e}")
+                if new_bitmap is not bitmap:
+                    bitmap.recycle()
+                    bitmap = new_bitmap
+                Logger.info(f"file_picker: applied orientation {orientation}")
+            except Exception as e:
+                Logger.warning(f"file_picker: rotation failed -> {e}")
 
-        # 5. Сохраняем как JPEG
+        # 5. Сохраняем JPEG
         out_path = os.path.join(cache_dir, "picked_photo.jpg")
         if os.path.exists(out_path):
             os.remove(out_path)
@@ -125,7 +138,6 @@ def _on_activity_result(request_code, result_code, intent):
         out_stream.close()
         bitmap.recycle()
 
-        # Удаляем временный
         try:
             os.remove(temp_in)
         except Exception:

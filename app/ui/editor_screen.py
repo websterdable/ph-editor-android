@@ -65,9 +65,9 @@ class EditorScreen(Screen):
         theme.bind(bg=self._upd_bg)
 
     def _build(self):
-        root = BoxLayout(orientation="vertical", padding=dp(8), spacing=dp(6))
+        outer = BoxLayout(orientation="vertical", padding=dp(8), spacing=dp(6))
 
-        # Верхняя панель
+        # ─── Top bar — фиксированный, вне скролла ───
         top = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(4))
         top.add_widget(IconButton(
             icon=ICON_BACK, variant="ghost",
@@ -83,39 +83,41 @@ class EditorScreen(Screen):
         top.add_widget(IconButton(
             icon=ICON_REDO, variant="ghost",
             size_hint=(None, None), size=(dp(44), dp(44)),
-            on_release=lambda *_: self._redo_step()))    
-        
-        # Кнопка «Текст»
+            on_release=lambda *_: self._redo_step()))
         top.add_widget(IconButton(
-            icon="\ue262",  # text_fields
-            variant="ghost",
+            icon="\ue262", variant="ghost",
             size_hint=(None, None), size=(dp(44), dp(44)),
             on_release=lambda *_: self._show_text_dialog()))
-
-        # Кнопка «Сравнить» — нажал: оригинал, отпустил: результат
         cmp_btn = IconButton(
-            icon="\ue41d",  # compare
-            variant="ghost",
+            icon="\ue41d", variant="ghost",
             size_hint=(None, None), size=(dp(44), dp(44)))
         cmp_btn.bind(state=self._on_compare_state)
         top.add_widget(cmp_btn)
-
         top.add_widget(IconButton(
             icon=ICON_SAVE, variant="primary",
             size_hint=(None, None), size=(dp(44), dp(44)),
             on_release=lambda *_: self._save_all()))
-        root.add_widget(top)
+        outer.add_widget(top)
 
+        # ─── Scrollable content ───
+        page_scroll = ScrollView(bar_width=dp(4))
+        page = BoxLayout(orientation="vertical", size_hint_y=None,
+                         spacing=dp(6), padding=(dp(4), dp(4)))
+        page.bind(minimum_height=page.setter("height"))
 
-        self.preview = KivyImage(size_hint=(1, 1), allow_stretch=True,
-                                  keep_ratio=True)
-        root.add_widget(self.preview)
+        # Превью
+        self.preview = KivyImage(size_hint_y=None, height=dp(280),
+                                  fit_mode="contain")
+        page.add_widget(self.preview)
 
+        # Статус
         self.status_lbl = Label(text="Откройте фото", size_hint_y=None,
                                  height=dp(22), font_size=dp(11),
-                                 color=theme.text_muted)
-        root.add_widget(self.status_lbl)
+                                 color=theme.text_muted,
+                                 font_name=theme.font_regular)
+        page.add_widget(self.status_lbl)
 
+        # Кнопки открыть/галерея/сброс
         actions = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(6))
         actions.add_widget(PillButton(text="Открыть",
                                        on_release=lambda *_: self._open(),
@@ -126,8 +128,9 @@ class EditorScreen(Screen):
         actions.add_widget(PillButton(text="Сброс",
                                        on_release=lambda *_: self._reset(),
                                        variant="ghost"))
-        root.add_widget(actions)
+        page.add_widget(actions)
 
+        # Табы
         tabs_row = BoxLayout(size_hint_y=None, height=dp(38), spacing=dp(4))
         self._tab_btns = {}
         for name in TABS:
@@ -135,20 +138,21 @@ class EditorScreen(Screen):
             btn.bind(on_release=lambda inst, n=name: self._select_tab(n))
             self._tab_btns[name] = btn
             tabs_row.add_widget(btn)
-        root.add_widget(tabs_row)
+        page.add_widget(tabs_row)
 
-        self.tools_scroll = ScrollView(
-            size_hint=(1, None), height=dp(170),
-            scroll_type=["bars"],  # только через скроллбар, не через контент
-            bar_width=dp(4),
-        )
+        # Панель инструментов — растёт естественно, без своего ScrollView
         self.tools_panel = BoxLayout(orientation="vertical", size_hint_y=None,
-                                       spacing=dp(2), padding=(dp(4), dp(4)))
+                                       spacing=dp(4), padding=(dp(4), dp(4)))
         self.tools_panel.bind(minimum_height=self.tools_panel.setter("height"))
-        self.tools_scroll.add_widget(self.tools_panel)
-        root.add_widget(self.tools_scroll)
+        page.add_widget(self.tools_panel)
 
-        self.add_widget(root)
+        # Отступ снизу
+        page.add_widget(BoxLayout(size_hint_y=None, height=dp(20)))
+
+        page_scroll.add_widget(page)
+        outer.add_widget(page_scroll)
+
+        self.add_widget(outer)
         self._select_tab("Базовое")
 
     def _upd_bg(self, *_):

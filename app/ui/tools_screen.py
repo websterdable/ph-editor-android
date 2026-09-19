@@ -56,42 +56,45 @@ class ToolsScreen(Screen):
         theme.bind(bg=self._upd_bg)
 
     def _build(self):
-        root = BoxLayout(orientation="vertical", padding=dp(8), spacing=dp(6))
+        outer = BoxLayout(orientation="vertical", padding=dp(8), spacing=dp(6))
 
-        # Top bar
+        # ─── Top bar — фиксированный, вне скролла ───
         top = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(4))
         top.add_widget(IconButton(
             icon=ICON_BACK, variant="ghost",
             size_hint=(None, None), size=(dp(44), dp(44)),
             on_release=lambda *_: self._back()))
-        top.add_widget(Label(text="Инструменты", font_name=theme.font_medium,
+        top.add_widget(Label(text="Инструменты",
+                              font_name=theme.font_medium,
                               font_size=dp(16), color=theme.text))
-        root.add_widget(top)
+        outer.add_widget(top)
 
-        self.preview = KivyImage(size_hint=(1, 1), allow_stretch=True,
-                                  keep_ratio=True)
-        root.add_widget(self.preview)
+        # ─── Один общий ScrollView на всю страницу ───
+        page_scroll = ScrollView(bar_width=dp(4))
+        page = BoxLayout(orientation="vertical", size_hint_y=None,
+                         spacing=dp(8), padding=(dp(4), dp(4)))
+        page.bind(minimum_height=page.setter("height"))
+
+        # Превью
+        self.preview = KivyImage(size_hint_y=None, height=dp(220),
+                                  fit_mode="contain")
+        page.add_widget(self.preview)
 
         self.info = Label(text="Файл не выбран",
                           size_hint_y=None, height=dp(36),
                           color=theme.text_muted,
-                          font_name=theme.font_regular, font_size=dp(12))
-        root.add_widget(self.info)
+                          font_name=theme.font_regular,
+                          font_size=dp(12))
+        page.add_widget(self.info)
 
-        root.add_widget(PillButton(text="Открыть фото",
-                                    on_release=lambda *_: self._open(),
-                                    size_hint_y=None, height=dp(48)))
-
-        # Панель настроек
-        scroll = ScrollView(size_hint=(1, None), height=dp(360),
-                             scroll_type=["bars"], bar_width=dp(4))
-        panel = BoxLayout(orientation="vertical", size_hint_y=None,
-                          spacing=dp(2), padding=(dp(4), dp(4)))
-        panel.bind(minimum_height=panel.setter("height"))
-        scroll.add_widget(panel)
+        page.add_widget(PillButton(
+            text="Открыть фото",
+            on_release=lambda *_: self._open(),
+            variant="primary",
+            size_hint_y=None, height=dp(48)))
 
         # ─── Формат ───
-        panel.add_widget(self._section_title("Формат"))
+        page.add_widget(self._section_title("Формат"))
         fmt_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(4))
         self._fmt_btns = {}
         for label, tag in FORMATS:
@@ -99,16 +102,16 @@ class ToolsScreen(Screen):
             b.bind(on_release=lambda inst, t=tag: self._set_format(t))
             self._fmt_btns[tag] = b
             fmt_row.add_widget(b)
-        panel.add_widget(fmt_row)
+        page.add_widget(fmt_row)
 
         # ─── Качество ───
-        panel.add_widget(self._section_title("Качество (JPEG / WebP)"))
+        page.add_widget(self._section_title("Качество (JPEG / WebP)"))
         self.quality_slider = SliderRow("Качество", 10, 100, 90,
                                          on_change=self._set_quality)
-        panel.add_widget(self.quality_slider)
+        page.add_widget(self.quality_slider)
 
         # ─── Размер ───
-        panel.add_widget(self._section_title("Размер"))
+        page.add_widget(self._section_title("Размер"))
         scale_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(4))
         self._scale_btns = {}
         for label, factor in PRESETS:
@@ -116,29 +119,32 @@ class ToolsScreen(Screen):
             b.bind(on_release=lambda inst, f=factor: self._set_scale(f))
             self._scale_btns[factor] = b
             scale_row.add_widget(b)
-        panel.add_widget(scale_row)
+        page.add_widget(scale_row)
 
-        panel.add_widget(PillButton(
-            text="Ручной размер (W × H)", variant="secondary",
+        page.add_widget(PillButton(
+            text="Ручной размер (W × H)",
+            variant="secondary",
             size_hint_y=None, height=dp(44),
             on_release=lambda *_: self._show_size_dialog()))
 
-        self.size_info = Label(text="", size_hint_y=None, height=dp(24),
+        self.size_info = Label(text="",
+                                size_hint_y=None, height=dp(24),
                                 color=theme.text_muted,
-                                font_name=theme.font_regular, font_size=dp(11))
-        panel.add_widget(self.size_info)
+                                font_name=theme.font_regular,
+                                font_size=dp(11))
+        page.add_widget(self.size_info)
 
         # ─── EXIF ───
-        panel.add_widget(self._section_title("Метаданные"))
-        panel.add_widget(Label(
+        page.add_widget(self._section_title("Метаданные"))
+        page.add_widget(Label(
             text="EXIF (геопозиция, модель камеры, дата) удаляется автоматически",
-            size_hint_y=None, height=dp(40),
-            color=theme.text_muted, font_name=theme.font_regular,
+            size_hint_y=None, height=dp(60),
+            color=theme.text_muted,
+            font_name=theme.font_regular,
             font_size=dp(11)))
 
-        root.add_widget(scroll)
-
-        # Кнопки сохранения
+        # ─── Сохранение ───
+        page.add_widget(self._section_title("Сохранение"))
         save_row = BoxLayout(size_hint_y=None, height=dp(52), spacing=dp(6))
         save_row.add_widget(PillButton(
             text="Сохранить", variant="primary",
@@ -146,9 +152,17 @@ class ToolsScreen(Screen):
         save_row.add_widget(PillButton(
             text="В галерею", variant="secondary",
             on_release=lambda *_: self._do_save(to_gallery=True)))
-        root.add_widget(save_row)
+        page.add_widget(save_row)
 
-        self.add_widget(root)
+        # Отступ снизу
+        page.add_widget(BoxLayout(size_hint_y=None, height=dp(24)))
+
+        page_scroll.add_widget(page)
+        outer.add_widget(page_scroll)
+
+        self.add_widget(outer)
+
+        # Начальные состояния
         self._set_format("JPEG")
         self._set_scale(1.0)
 
