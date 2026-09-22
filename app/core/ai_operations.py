@@ -1,3 +1,4 @@
+'''
 """Высокоуровневые ИИ-операции (апскейл, лица, фон)."""
 import numpy as np
 from kivy.logger import Logger
@@ -90,3 +91,55 @@ def remove_background(engine: AIEngine, img_rgb):
     alpha = np.clip(alpha * 255, 0, 255).astype(np.uint8)
     rgba = np.dstack([img_rgb, alpha])
     return rgba
+
+'''
+
+
+
+
+
+"""Вспомогательные операции для ИИ-модуля."""
+
+from kivy.logger import Logger
+
+def resize_hwc_u8(rgb, w, h, tw, th):
+    """Nearest-neighbor resize для HWC uint8."""
+    out = bytearray(tw * th * 3)
+    for y in range(th):
+        sy = y * h // th
+        row_src = sy * w
+        row_dst = y * tw
+        for x in range(tw):
+            sx = x * w // tw
+            src = (row_src + sx) * 3
+            dst = (row_dst + x) * 3
+            out[dst:dst + 3] = rgb[src:src + 3]
+    return bytes(out)
+
+
+def upscale(engine, img_rgb_bytes, w, h):
+    """Real-ESRGAN. Возвращает (bytes, w, h) или None."""
+    Logger.info(f"upscale: вход {w}x{h}")
+    result = engine.run("realesrgan_x4", img_rgb_bytes, w, h,
+                         scale=1.0 / 255.0)
+    if result is None:
+        return None
+    return result
+
+
+def remove_background(engine, img_rgb_bytes, w, h):
+    """MODNet. Возвращает (bytes, w, h) или None. Выход — RGB (без альфы пока)."""
+    # MODNet требует размер кратный 32
+    tw = max(256, (w // 32) * 32)
+    th = max(256, (h // 32) * 32)
+    if tw != w or th != h:
+        small = resize_hwc_u8(img_rgb_bytes, w, h, tw, th)
+    else:
+        small = img_rgb_bytes
+
+    result = engine.run("modnet", small, tw, th, scale=1.0 / 255.0)
+    if result is None:
+        return None
+    out_bytes, ow, oh = result
+    # Пока просто возвращаем результат (альфу добавим позже)
+    return out_bytes, ow, oh
