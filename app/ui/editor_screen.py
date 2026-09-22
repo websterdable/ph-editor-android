@@ -52,10 +52,12 @@ class EditorScreen(Screen):
         super().__init__(**kwargs)
         self.base_dir = _app_dir()
         self.storage = LocalStorage(self.base_dir)
+        self._busy = False
 
         # Храним как (bytes, w, h)
-        self.original = None   # tuple или None
-        self.current = None    # tuple или None
+        self.base = None       # НЕИЗМЕННЫЙ оригинал — источник для кропа и сброса
+        self.original = None   # «зафиксированное» состояние — на нём работают слайдеры/фильтры
+        self.current = None    # живой preview
         self._undo = []
         self._redo = []
         self.MAX_HISTORY = 8
@@ -174,6 +176,7 @@ class EditorScreen(Screen):
             if loaded is None:
                 self._set_status("Не удалось загрузить")
                 return
+            self.base = loaded
             self.original = loaded
             self.current = loaded
             self._undo.clear()
@@ -219,17 +222,25 @@ class EditorScreen(Screen):
         self._set_status("Повторено")
 
     def _reset(self):
-        if self.original is None:
+        if self.base is None:
             return
         self._push_undo()
-        self.current = self.original
+        self.original = self.base
+        self.current = self.base
         self._refresh_preview()
-        self._set_status("Сброшено")
+        self._set_status("Сброшено к оригиналу")
 
     def _set_status(self, text):
         self.status_lbl.text = text
 
     def _select_tab(self, name):
+        # Авто-фиксация: текущий результат становится новой базой
+        if (self.current is not None
+                and self.original is not self.current):
+            self.original = self.current
+            self._undo.clear()  # накопленные слайдерные изменения устарели
+            self._redo.clear()
+
         self.active_tab = name
         for tab_name, btn in self._tab_btns.items():
             btn.variant = "primary" if tab_name == name else "secondary"
@@ -289,10 +300,6 @@ class EditorScreen(Screen):
         self.tools_panel.add_widget(SliderRow("Насыщенность", 0, 200, 100, on_change=_satur))
         self.tools_panel.add_widget(SliderRow("Резкость", 0, 200, 0, on_change=_sharp))
         self.tools_panel.add_widget(SliderRow("Оттенок (Hue)", 0, 100, 50, on_change=_hue))
-        self.tools_panel.add_widget(PillButton(
-            text="Зафиксировать как шаг",
-            on_release=lambda *_: self._push_undo(),
-            size_hint_y=None, height=dp(40)))
 
     def _build_light(self):
         def _shadows(v):
@@ -355,6 +362,9 @@ class EditorScreen(Screen):
         if self.original is None:
             self._set_status("Сначала откройте фото")
             return
+        if self._busy:
+            return
+        self._busy = True
         show_loading(f"Фильтр: {name}…")
         Clock.schedule_once(lambda dt: self._do_apply_filter(name), 0.05)
 
@@ -364,29 +374,50 @@ class EditorScreen(Screen):
             fn = ops.FILTERS[name]
             b, w, h = self.original
             self.current = (fn(b, w, h), w, h)
+            self.original = self.current
             self._refresh_preview()
             self._set_status(f"Фильтр: {name}")
         except Exception as e:
             self._set_status(f"Ошибка: {e}")
         finally:
+            self._busy = False
             hide_loading()
 
     def _build_geom(self):
-        for txt, icon, cb in [
+        rows = [
             ("Повернуть вправо", ICON_ROTATE_R, lambda *_: self._rotate(True)),
             ("Повернуть влево",  ICON_ROTATE_L, lambda *_: self._rotate(False)),
             ("Отразить гориз.",  ICON_FLIP,     lambda *_: self._flip("h")),
             ("Отразить верт.",   ICON_FLIP,     lambda *_: self._flip("v")),
-        ]:
-            row = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
-            b = IconButton(icon=icon, variant="secondary",
-                            size_hint=(None, None), size=(dp(44), dp(44)))
-            b.bind(on_release=cb)
-            row.add_widget(b)
-            lbl = Label(text=txt, color=theme.text, font_name=theme.font_regular,
-                        font_size=dp(13), halign="left", valign="middle")
-            lbl.bind(size=lambda *_: setattr(lbl, "text_size", lbl.size))
-            row.add_widget(lbl)
+        ]
+        for txt, icon, cb in rows:
+            # Карточка-кнопка на всю ширину
+            row = Button(
+                size_hint_y=None, height=dp(52),
+                background_normal="", background_down="",
+                background_color=(0, 0, 0, 0),
+            )
+            with row.canvas.before:
+                from kivy.graphics import Color, RoundedRectangle
+                row._color = Color(*theme.surface_2)
+                row._rect = RoundedRectangle(pos=row.pos, size=row.size,
+                                              radius=[dp(14)])
+            row.bind(pos=lambda w, *_: setattr(w._rect, "pos", w.pos),
+                     size=lambda w, *_: setattr(w._rect, "size", w.size))
+            row.bind(on_release=cb)
+
+            inner = BoxLayout(spacing=dp(8), padding=(dp(12), 0))
+            icon_lbl = Label(text=icon, font_name=theme.font_icons,
+                             font_size=dp(22), color=theme.accent,
+                             size_hint_x=None, width=dp(30))
+            inner.add_widget(icon_lbl)
+            txt_lbl = Label(text=txt, color=theme.text,
+                             font_name=theme.font_regular,
+                             font_size=dp(14),
+                             halign="left", valign="middle")
+            txt_lbl.bind(size=lambda w, *_: setattr(w, "text_size", w.size))
+            inner.add_widget(txt_lbl)
+            row.add_widget(inner)
             self.tools_panel.add_widget(row)
 
         # ─── Сравнение «до/после» ────────────────────────────────
@@ -437,21 +468,26 @@ class EditorScreen(Screen):
             # «Оригинал» — просто оставить как есть
             self._set_status("Кроп отменён")
             return
+        if self._busy:
+            return   
+        self._busy = True
         show_loading("Кроп…")
         Clock.schedule_once(lambda dt: self._do_crop_preset(ratio), 0.05)
 
     def _do_crop_preset(self, ratio):
         try:
             self._push_undo()
-            b, w, h = self.current
+            # Всегда режем от НЕИЗМЕННОГО оригинала, не от текущего
+            b, w, h = self.base
             new_b, new_w, new_h = ops.crop_centered(b, w, h, ratio[0], ratio[1])
-            self.current = (new_b, new_w, new_h)
-            self.original = self.current
+            self.original = (new_b, new_w, new_h)
+            self.current = self.original
             self._refresh_preview()
             self._set_status(f"Кроп {ratio[0]}:{ratio[1]} · {new_w}×{new_h}")
         except Exception as e:
             self._set_status(f"Ошибка: {e}")
         finally:
+            self._busy = False
             hide_loading()
 
 
@@ -513,21 +549,25 @@ class EditorScreen(Screen):
     def _apply_manual_crop(self, x, y, cw, ch):
         if self.current is None:
             return
+        if self._busy:
+            return
         show_loading("Кроп…")
+        self._busy = True
         Clock.schedule_once(lambda dt: self._do_manual_crop(x, y, cw, ch), 0.05)
 
     def _do_manual_crop(self, x, y, cw, ch):
         try:
             self._push_undo()
-            b, w, h = self.current
+            b, w, h = self.base  # ← от оригинала
             new_b, new_w, new_h = ops.crop(b, w, h, x, y, cw, ch)
-            self.current = (new_b, new_w, new_h)
-            self.original = self.current
+            self.original = (new_b, new_w, new_h)
+            self.current = self.original
             self._refresh_preview()
             self._set_status(f"Кроп · {new_w}×{new_h}")
         except Exception as e:
             self._set_status(f"Ошибка: {e}")
         finally:
+            self._busy = False
             hide_loading()
 
     # ─── Текст на фото ──────────────────────────────────────
@@ -583,6 +623,31 @@ class EditorScreen(Screen):
             color_btns.add_widget(b)
         root.add_widget(color_btns)
 
+        # Позиция
+        pos_lbl = Label(text="Позиция", size_hint_y=None, height=dp(24),
+                        color=theme.text, font_name=theme.font_regular,
+                        font_size=dp(13))
+        root.add_widget(pos_lbl)
+
+        pos_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(4))
+        pos_selected = {"pos": (0.5, 0.85)}
+        pos_btns = {}
+
+        def _pick_pos(name, xy):
+            pos_selected["pos"] = xy
+            for n, b in pos_btns.items():
+                b.variant = "primary" if n == name else "secondary"
+                b._upd_color()
+
+        for name, xy in [("Сверху", (0.5, 0.15)),
+                          ("Центр", (0.5, 0.5)),
+                          ("Снизу", (0.5, 0.85))]:
+            b = PillButton(text=name, variant="secondary", font_size=dp(12))
+            b.bind(on_release=lambda inst, n=name, x=xy: _pick_pos(n, x))
+            pos_btns[name] = b
+            pos_row.add_widget(b)
+        root.add_widget(pos_row)
+
         # Кнопки
         btns = BoxLayout(size_hint_y=None, height=dp(48), spacing=dp(6))
         cancel = PillButton(text="Отмена", variant="ghost")
@@ -601,7 +666,8 @@ class EditorScreen(Screen):
             except Exception:
                 fs = 48
             popup.dismiss()
-            self._apply_text(text, fs, selected["color"])
+            self._apply_text(text, fs, selected["color"], pos_selected["pos"])
+
 
         cancel.bind(on_release=_cancel)
         ok.bind(on_release=_apply)
@@ -614,32 +680,40 @@ class EditorScreen(Screen):
                       separator_color=theme.accent)
         popup.open()
 
-    def _apply_text(self, text, font_size, color):
+    def _apply_text(self, text, font_size, color, pos=(0.5, 0.85)):
         if self.current is None:
             return
+        if self._busy:
+            return
+        self._busy = True
         show_loading("Рендер текста…")
         Clock.schedule_once(
-            lambda dt: self._do_apply_text(text, font_size, color), 0.05)
+            lambda dt: self._do_apply_text(text, font_size, color, pos), 0.05)
 
-    def _do_apply_text(self, text, font_size, color):
+    def _do_apply_text(self, text, font_size, color, pos):
         try:
             self._push_undo()
             b, w, h = self.current
             new_b = ops.text_overlay(b, w, h, text,
                                       font_size=font_size,
                                       color=color,
-                                      x_ratio=0.5, y_ratio=0.85)
+                                      x_ratio=pos[0], y_ratio=pos[1])
             self.current = (new_b, w, h)
+            self.original = self.current
             self._refresh_preview()
-            self._set_status(f"Текст добавлен: «{text[:20]}…»")
+            self._set_status(f"Текст: «{text[:20]}…»")
         except Exception as e:
             self._set_status(f"Ошибка: {e}")
         finally:
+            self._busy = False
             hide_loading()
 
     def _rotate(self, cw):
         if self.current is None:
             return
+        if self._busy:
+            return
+        self._busy = True
         show_loading("Поворот…")
         Clock.schedule_once(lambda dt: self._do_rotate(cw), 0.05)
 
@@ -655,11 +729,15 @@ class EditorScreen(Screen):
         except Exception as e:
             self._set_status(f"Ошибка: {e}")
         finally:
+            self._busy = False
             hide_loading()
 
     def _flip(self, direction):
         if self.current is None:
             return
+        if self._busy:
+            return   
+        self._busy = True
         show_loading("Отражение…")
         Clock.schedule_once(lambda dt: self._do_flip(direction), 0.05)
 
@@ -678,6 +756,7 @@ class EditorScreen(Screen):
         except Exception as e:
             self._set_status(f"Ошибка: {e}")
         finally:
+            self._busy = False
             hide_loading()
 
     def _save_all(self):
