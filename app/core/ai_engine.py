@@ -1,69 +1,70 @@
-"""Обёртка над Java-помощником OnnxHelper. Без numpy.
-
-При первом запуске копирует модели из APK-бандла в приватную папку,
-чтобы дальше читать их оттуда.
-"""
+"""Обёртка над OnnxHelper. Модели читаем через Android AssetManager."""
 import os
-import shutil
 from kivy.logger import Logger
+from kivy.utils import platform
 from jnius import autoclass
 
 OnnxHelper = autoclass("org.local.photoai.OnnxHelper")
 
 
-# Возможные места, где Android распаковывает assets из APK
-_BUNDLED_CANDIDATES = [
-    "assets/models",           # относительно текущей рабочей директории
-    "../assets/models",
-    "app/assets/models",
-    os.path.join(os.path.dirname(__file__), "..", "..", "assets", "models"),
-    os.path.join(os.path.dirname(__file__), "..", "assets", "models"),
-]
-
-
-def _find_bundled_dir(filename):
-    """Ищем папку, где лежит файл модели в бандле APK."""
-    for cand in _BUNDLED_CANDIDATES:
-        p = os.path.abspath(cand)
-        full = os.path.join(p, filename)
-        if os.path.exists(full):
-            Logger.info(f"AIEngine: модель найдена в бандле: {full}")
-            return p, full
-    return None, None
+def _extract_from_assets(asset_name, dst_path):
+    """Скопировать файл из APK assets в файловую систему."""
+    try:
+        PythonActivity = autoclass("org.kivy.android.PythonActivity")
+        activity = PythonActivity.mActivity
+        am = activity.getAssets()
+        stream = am.open(asset_name)
+        if stream is None:
+            return False
+        FileOutputStream = autoclass("java.io.FileOutputStream")
+        out = FileOutputStream(dst_path)
+        buf = bytearray(65536)
+        total = 0
+        while True:
+            n = stream.read(buf)
+            if n <= 0:
+                break
+            out.write(bytes(buf[:n]))
+            total += n
+        out.flush()
+        out.close()
+        stream.close()
+        Logger.info(f"AIEngine: extracted {asset_name} -> {dst_path} ({total} байт)")
+        return total > 0
+    except Exception as e:
+        Logger.error(f"AIEngine: extract failed for {asset_name}: {e}")
+        return False
 
 
 def _ensure_models(model_dir, names):
-    """Копируем модели из бандла в приватную папку, если их там нет."""
     os.makedirs(model_dir, exist_ok=True)
     for name in names:
         dst = os.path.join(model_dir, f"{name}.onnx")
-        if os.path.exists(dst):
+        if os.path.exists(dst) and os.path.getsize(dst) > 0:
+            Logger.info(f"AIEngine: {name}.onnx уже на месте")
             continue
-        _, src = _find_bundled_dir(f"{name}.onnx")
-        if src is None:
-            Logger.warning(f"AIEngine: в бандле нет {name}.onnx")
-            continue
-        try:
-            shutil.copyfile(src, dst)
-            size_mb = os.path.getsize(dst) / 1024 / 1024
-            Logger.info(f"AIEngine: скопирована {name}.onnx ({size_mb:.1f} МБ)")
-        except Exception as e:
-            Logger.error(f"AIEngine: не удалось скопировать {name}: {e}")
+        # Пробуем два варианта пути в assets
+        for asset_name in [f"assets/models/{name}.onnx",
+                            f"models/{name}.onnx"]:
+            if _extract_from_assets(asset_name, dst):
+                break
+        else:
+            Logger.warning(f"AIEngine: не нашли {name}.onnx в assets")
 
 
 class AIEngine:
-    KNOWN_MODELS = ["yunet", "realesrgan_x4", "modnet", "gfpgan", "ddcolor"]
+    KNOWN_MODELS = ["yunet", "realesrgan_x4", "modnet"]
 
     def __init__(self, model_dir):
         self.model_dir = model_dir
         self.handles = {}
-        _ensure_models(model_dir, self.KNOWN_MODELS)
-        Logger.info(f"AIEngine: рабочая папка моделей: {model_dir}")
-        # Логируем, что в итоге есть
+        if platform == "android":
+            _ensure_models(model_dir, self.KNOWN_MODELS)
+        Logger.info(f"AIEngine: папка моделей: {model_dir}")
         for name in self.KNOWN_MODELS:
             p = os.path.join(model_dir, f"{name}.onnx")
-            exists = os.path.exists(p)
-            Logger.info(f"AIEngine: {name}.onnx — {'OK' if exists else 'отсутствует'}")
+            sz = os.path.getsize(p) // 1024 if os.path.exists(p) else 0
+            Logger.info(f"AIEngine: {name}.onnx — {sz} КБ")
 
     def has_model(self, name):
         return os.path.exists(os.path.join(self.model_dir, f"{name}.onnx"))
@@ -73,7 +74,6 @@ class AIEngine:
             return True
         path = os.path.join(self.model_dir, f"{name}.onnx")
         if not os.path.exists(path):
-            Logger.warning(f"AIEngine: нет модели {path}")
             return False
         h_id = OnnxHelper.loadModel(path)
         if h_id < 0:
@@ -84,38 +84,27 @@ class AIEngine:
         return True
 
     def run(self, name, hwc_u8, w, h, scale=1.0 / 255.0):
-        """hwc_u8: bytes. Возвращает (bytes, w_out, h_out) или None."""
         if not self.load(name):
             return None
         try:
             result = OnnxHelper.runModelU8(
                 self.handles[name], hwc_u8, w, h, float(scale))
-
             if result.error is not None:
                 Logger.error(f"AIEngine.run({name}): {result.error}")
                 return None
-
             out_shape = [int(result.shape[i]) for i in range(len(result.shape))]
             Logger.info(f"AIEngine.run({name}): out shape={out_shape}")
-
             if len(out_shape) == 4 and out_shape[1] == 3:
                 hwc_out = OnnxHelper.chwF32ToHwcU8(result.data, result.shape)
                 if hwc_out is None:
-                    Logger.error(f"AIEngine.run({name}): chwF32ToHwcU8 -> None")
                     return None
                 return bytes(hwc_out), out_shape[3], out_shape[2]
             elif len(out_shape) == 4 and out_shape[1] == 1:
                 hwc_out = OnnxHelper.chw1ToHwcU8(result.data, result.shape)
                 if hwc_out is None:
-                    Logger.error(f"AIEngine.run({name}): chw1ToHwcU8 -> None")
                     return None
                 return bytes(hwc_out), out_shape[3], out_shape[2]
-            else:
-                Logger.error(f"AIEngine.run({name}): неожиданный shape {out_shape}")
-                return None
+            return None
         except Exception as e:
             Logger.exception(f"AIEngine.run({name}): {e}")
             return None
-
-    def unload(self, name):
-        self.handles.pop(name, None)
