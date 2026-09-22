@@ -1,39 +1,39 @@
-"""Обёртка над OnnxHelper. Модели читаем через Android AssetManager."""
+"""Обёртка над OnnxHelper. Модели ищем в файловой системе приложения."""
 import os
+import shutil
 from kivy.logger import Logger
-from kivy.utils import platform
 from jnius import autoclass
 
 OnnxHelper = autoclass("org.local.photoai.OnnxHelper")
 
 
-def _extract_from_assets(asset_name, dst_path):
-    """Скопировать файл из APK assets в файловую систему."""
-    try:
-        PythonActivity = autoclass("org.kivy.android.PythonActivity")
-        activity = PythonActivity.mActivity
-        am = activity.getAssets()
-        stream = am.open(asset_name)
-        if stream is None:
-            return False
-        FileOutputStream = autoclass("java.io.FileOutputStream")
-        out = FileOutputStream(dst_path)
-        buf = bytearray(65536)
-        total = 0
-        while True:
-            n = stream.read(buf)
-            if n <= 0:
-                break
-            out.write(bytes(buf[:n]))
-            total += n
-        out.flush()
-        out.close()
-        stream.close()
-        Logger.info(f"AIEngine: extracted {asset_name} -> {dst_path} ({total} байт)")
-        return total > 0
-    except Exception as e:
-        Logger.error(f"AIEngine: extract failed for {asset_name}: {e}")
-        return False
+def _candidate_dirs():
+    """Все возможные места, где может лежать assets/models."""
+    cwd = os.getcwd()
+    here = os.path.dirname(os.path.abspath(__file__))
+    return [
+        os.path.join(cwd, "assets", "models"),
+        os.path.join(cwd, "app", "assets", "models"),
+        os.path.join(cwd, "..", "assets", "models"),
+        os.path.abspath(os.path.join(here, "..", "..", "assets", "models")),
+        os.path.abspath(os.path.join(here, "..", "assets", "models")),
+        "/data/data/org.local.photoai/files/app/assets/models",
+        "/data/user/0/org.local.photoai/files/app/assets/models",
+    ]
+
+
+def _find_model(name):
+    """Найти файл модели в бандле. Возвращает полный путь или None."""
+    filename = f"{name}.onnx"
+    for d in _candidate_dirs():
+        p = os.path.join(d, filename)
+        try:
+            if os.path.exists(p) and os.path.getsize(p) > 0:
+                Logger.info(f"AIEngine: найден в бандле: {p}")
+                return p
+        except Exception:
+            continue
+    return None
 
 
 def _ensure_models(model_dir, names):
@@ -41,15 +41,31 @@ def _ensure_models(model_dir, names):
     for name in names:
         dst = os.path.join(model_dir, f"{name}.onnx")
         if os.path.exists(dst) and os.path.getsize(dst) > 0:
-            Logger.info(f"AIEngine: {name}.onnx уже на месте")
+            Logger.info(f"AIEngine: {name}.onnx уже в private dir")
             continue
-        # Пробуем два варианта пути в assets
-        for asset_name in [f"assets/models/{name}.onnx",
-                            f"models/{name}.onnx"]:
-            if _extract_from_assets(asset_name, dst):
-                break
-        else:
-            Logger.warning(f"AIEngine: не нашли {name}.onnx в assets")
+        src = _find_model(name)
+        if src is None:
+            Logger.warning(f"AIEngine: {name}.onnx не найден ни в одной папке")
+            # Логируем содержимое cwd для диагностики
+            try:
+                cwd = os.getcwd()
+                Logger.info(f"AIEngine: cwd={cwd}")
+                for root, dirs, files in os.walk(cwd):
+                    depth = root[len(cwd):].count(os.sep)
+                    if depth <= 3 and any(f.endswith('.onnx') for f in files):
+                        Logger.info(f"AIEngine: нашли onnx в {root}")
+                        for f in files:
+                            if f.endswith('.onnx'):
+                                Logger.info(f"AIEngine:   {f}")
+            except Exception:
+                pass
+            continue
+        try:
+            shutil.copyfile(src, dst)
+            size_mb = os.path.getsize(dst) / 1024 / 1024
+            Logger.info(f"AIEngine: скопирована {name}.onnx ({size_mb:.1f} МБ) -> {dst}")
+        except Exception as e:
+            Logger.error(f"AIEngine: ошибка копирования {name}: {e}")
 
 
 class AIEngine:
@@ -58,16 +74,15 @@ class AIEngine:
     def __init__(self, model_dir):
         self.model_dir = model_dir
         self.handles = {}
-        if platform == "android":
-            _ensure_models(model_dir, self.KNOWN_MODELS)
-        Logger.info(f"AIEngine: папка моделей: {model_dir}")
+        _ensure_models(model_dir, self.KNOWN_MODELS)
         for name in self.KNOWN_MODELS:
             p = os.path.join(model_dir, f"{name}.onnx")
             sz = os.path.getsize(p) // 1024 if os.path.exists(p) else 0
             Logger.info(f"AIEngine: {name}.onnx — {sz} КБ")
 
     def has_model(self, name):
-        return os.path.exists(os.path.join(self.model_dir, f"{name}.onnx"))
+        p = os.path.join(self.model_dir, f"{name}.onnx")
+        return os.path.exists(p) and os.path.getsize(p) > 0
 
     def load(self, name):
         if name in self.handles:

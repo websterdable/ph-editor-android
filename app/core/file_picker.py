@@ -1,8 +1,4 @@
-"""Нативный Android-выбор фото из галереи.
-
-Callback всегда выполняется в главном Kivy-потоке через Clock.schedule_once,
-иначе Kivy падает с "Cannot create graphics instruction outside the main Kivy thread".
-"""
+"""Нативный Android-выбор фото. Callback всегда в главном Kivy-потоке."""
 import os
 from kivy.clock import Clock
 from kivy.logger import Logger
@@ -10,21 +6,25 @@ from kivy.utils import platform
 
 REQUEST_CODE = 0x5A11
 _callback = None
+_bound = False
+_in_flight = False
 
 
 def _invoke(cb, value):
-    """Вызвать callback в главном Kivy-потоке."""
     if cb is None:
         return
     Clock.schedule_once(lambda dt: cb(value), 0)
 
 
 def _on_activity_result(request_code, result_code, intent):
-    global _callback
-    Logger.info(f"file_picker: result code={request_code} result={result_code}")
+    global _callback, _in_flight
     if request_code != REQUEST_CODE:
         return
+    _in_flight = False
     cb = _callback
+    _callback = None  # ← сбрасываем сразу, чтобы не сработало дважды
+    Logger.info(f"file_picker: result code={request_code} result={result_code}")
+
     try:
         from jnius import autoclass
         Activity = autoclass("android.app.Activity")
@@ -50,10 +50,10 @@ def _on_activity_result(request_code, result_code, intent):
         resolver = activity.getContentResolver()
         cache_dir = activity.getCacheDir().getAbsolutePath()
 
-        # 1. Копируем content:// в temp через Python (проверенный способ)
-        temp_in = os.path.join(cache_dir, "input_temp.jpg")
-        if os.path.exists(temp_in):
-            os.remove(temp_in)
+        # Уникальный temp-файл на каждый вызов — не перетираем предыдущий
+        import time
+        stamp = int(time.time() * 1000)
+        temp_in = os.path.join(cache_dir, f"input_{stamp}.jpg")
 
         in_stream = resolver.openInputStream(uri)
         total = 0
@@ -68,8 +68,7 @@ def _on_activity_result(request_code, result_code, intent):
         in_stream.close()
         Logger.info(f"file_picker: copied {total} bytes")
 
-        # 2. Читаем EXIF (мягко)
-        orientation = 1  # 1 = NORMAL
+        orientation = 1
         try:
             exif = ExifInterface(temp_in)
             orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, 1)
@@ -77,7 +76,6 @@ def _on_activity_result(request_code, result_code, intent):
         except Exception as e:
             Logger.warning(f"file_picker: EXIF read failed -> {e}")
 
-        # 3. Декодируем bitmap
         bitmap = BitmapFactory.decodeFile(temp_in)
         if bitmap is None:
             Logger.error("file_picker: BitmapFactory вернул None")
@@ -86,52 +84,32 @@ def _on_activity_result(request_code, result_code, intent):
 
         Logger.info(f"file_picker: decoded {bitmap.getWidth()}x{bitmap.getHeight()}")
 
-        # 4. Поворот ТОЛЬКО для ориентаций 2..8
-        rotate_deg = 0
-        flip_x = False
-        flip_y = False
-        if orientation == 2:
-            flip_x = True
-        elif orientation == 3:
-            rotate_deg = 180
-        elif orientation == 4:
-            flip_y = True
-        elif orientation == 5:
-            rotate_deg = 90
-            flip_x = True
-        elif orientation == 6:
-            rotate_deg = 90
-        elif orientation == 7:
-            rotate_deg = 270
-            flip_x = True
-        elif orientation == 8:
-            rotate_deg = 270
+        rotate_deg, flip_x, flip_y = 0, False, False
+        if orientation == 2: flip_x = True
+        elif orientation == 3: rotate_deg = 180
+        elif orientation == 4: flip_y = True
+        elif orientation == 5: rotate_deg = 90; flip_x = True
+        elif orientation == 6: rotate_deg = 90
+        elif orientation == 7: rotate_deg = 270; flip_x = True
+        elif orientation == 8: rotate_deg = 270
 
         if rotate_deg or flip_x or flip_y:
             try:
                 matrix = Matrix()
-                if rotate_deg:
-                    matrix.postRotate(rotate_deg)
-                if flip_x:
-                    matrix.postScale(-1, 1)
-                if flip_y:
-                    matrix.postScale(1, -1)
+                if rotate_deg: matrix.postRotate(rotate_deg)
+                if flip_x: matrix.postScale(-1, 1)
+                if flip_y: matrix.postScale(1, -1)
                 new_bitmap = Bitmap.createBitmap(
                     bitmap, 0, 0,
                     bitmap.getWidth(), bitmap.getHeight(),
-                    matrix, True,
-                )
+                    matrix, True)
                 if new_bitmap is not bitmap:
                     bitmap.recycle()
                     bitmap = new_bitmap
-                Logger.info(f"file_picker: applied orientation {orientation}")
             except Exception as e:
                 Logger.warning(f"file_picker: rotation failed -> {e}")
 
-        # 5. Сохраняем JPEG
-        out_path = os.path.join(cache_dir, "picked_photo.jpg")
-        if os.path.exists(out_path):
-            os.remove(out_path)
+        out_path = os.path.join(cache_dir, f"picked_{stamp}.jpg")
         out_stream = FileOutputStream(out_path)
         bitmap.compress(BitmapCompressFormat.JPEG, 95, out_stream)
         out_stream.flush()
@@ -148,7 +126,6 @@ def _on_activity_result(request_code, result_code, intent):
         if size == 0:
             _invoke(cb, None)
             return
-
         _invoke(cb, out_path)
 
     except Exception as e:
@@ -156,21 +133,33 @@ def _on_activity_result(request_code, result_code, intent):
         _invoke(cb, None)
 
 
+def _ensure_bound():
+    """Подписать activity на callback только один раз за жизнь процесса."""
+    global _bound
+    if _bound:
+        return
+    try:
+        from android import activity
+        activity.bind(on_activity_result=_on_activity_result)
+        _bound = True
+        Logger.info("file_picker: activity callback привязан")
+    except Exception as e:
+        Logger.exception(f"file_picker: bind failed: {e}")
+
+
 def _pick_android(callback):
-    global _callback
+    global _callback, _in_flight
+    if _in_flight:
+        Logger.warning("file_picker: предыдущий выбор ещё в полёте, игнорируем")
+        return
     _callback = callback
+    _in_flight = True
     try:
         from jnius import autoclass
-        from android import activity
-
         Intent = autoclass("android.content.Intent")
         PythonActivity = autoclass("org.kivy.android.PythonActivity")
 
-        try:
-            activity.unbind(on_activity_result=_on_activity_result)
-        except Exception:
-            pass
-        activity.bind(on_activity_result=_on_activity_result)
+        _ensure_bound()  # ← только один раз
 
         intent = Intent(Intent.ACTION_GET_CONTENT)
         intent.setType("image/*")
@@ -180,6 +169,8 @@ def _pick_android(callback):
         PythonActivity.mActivity.startActivityForResult(intent, REQUEST_CODE)
     except Exception as e:
         Logger.exception(f"file_picker: не удалось запустить: {e}")
+        _in_flight = False
+        _callback = None
         _invoke(callback, None)
 
 
