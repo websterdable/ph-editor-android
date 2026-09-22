@@ -9,6 +9,7 @@ def save_to_gallery(local_path, mime="image/png"):
     if platform != "android":
         Logger.info("exporter: не Android, пропускаем")
         return False
+    Logger.info(f"exporter: сохраняем {local_path} mime={mime}")
     try:
         from jnius import autoclass  # type: ignore
         MediaStore = autoclass("android.provider.MediaStore$Images$Media")
@@ -55,7 +56,8 @@ def save_to_gallery(local_path, mime="image/png"):
             n = inp.read(buf)
             if n <= 0:
                 break
-            out.write(buf, 0, n)
+            # bytes(...) — конвертируем bytearray в bytes (jnius требует bytes)
+            out.write(bytes(buf[:n]))
         out.flush()
         out.close()
         inp.close()
@@ -66,6 +68,7 @@ def save_to_gallery(local_path, mime="image/png"):
             resolver.update(uri, values, None, None)
 
         Logger.info(f"exporter: сохранено в галерею: {filename}")
+        Logger.info(f"exporter: OK -> {filename}")
         return True
     except Exception as e:
         Logger.error(f"exporter: ошибка -> {e}")

@@ -1,98 +1,99 @@
-"""Управление ONNX-сессиями: ленивая загрузка, кэш, потоки."""
-import os
-import threading
-from pathlib import Path
+"""Обёртка над ONNX Runtime Java API через pyjnius."""
+import numpy as np
+from jnius import autoclass
 from kivy.logger import Logger
 
-_ORT = None
-_ORT_AVAILABLE = False
-_PROBED = False
-
-
-def probe_ort():
-    global _ORT, _ORT_AVAILABLE, _PROBED
-    if _PROBED:
-        return _ORT_AVAILABLE
-    _PROBED = True
-    try:
-        import onnxruntime as ort
-        _ORT = ort
-        _ORT_AVAILABLE = True
-        Logger.info("AIEngine: onnxruntime доступен")
-    except Exception as e:
-        Logger.warning(f"AIEngine: onnxruntime НЕ доступен -> {e}")
-        _ORT_AVAILABLE = False
-    return _ORT_AVAILABLE
+# Java-классы ONNX Runtime
+OrtEnvironment = autoclass('ai.onnxruntime.OrtEnvironment')
+OrtSession = autoclass('ai.onnxruntime.OrtSession')
+OrtSessionOptions = autoclass('ai.onnxruntime.OrtSession$SessionOptions')
+OnnxTensor = autoclass('ai.onnxruntime.OnnxTensor')
+ByteBuffer = autoclass('java.nio.ByteBuffer')
+ByteOrder = autoclass('java.nio.ByteOrder')
+HashMap = autoclass('java.util.HashMap')
 
 
 class AIEngine:
-    """Потокобезопасный менеджер ONNX-сессий."""
+    """Менеджер ONNX-сессий через Java API."""
 
-    def __init__(self, model_dir: str):
-        self.model_dir = Path(model_dir)
-        self.model_dir.mkdir(parents=True, exist_ok=True)
-        self._sessions = {}
-        self._lock = threading.Lock()
-        self.available = probe_ort()
+    def __init__(self, model_dir):
+        self.model_dir = model_dir
+        self.env = OrtEnvironment.getEnvironment()
+        self.sessions = {}
+        Logger.info("AIEngine: Java ONNX Runtime инициализирован")
 
-    def is_ready(self) -> bool:
-        return self.available
+    def has_model(self, name):
+        import os
+        return os.path.exists(os.path.join(self.model_dir, f"{name}.onnx"))
 
-    def has_model(self, name: str) -> bool:
-        return (self.model_dir / f"{name}.onnx").exists()
-
-    def load(self, name: str) -> bool:
-        if not self.available:
+    def load(self, name):
+        if name in self.sessions:
+            return True
+        import os
+        path = os.path.join(self.model_dir, f"{name}.onnx")
+        if not os.path.exists(path):
+            Logger.warning(f"AIEngine: модель не найдена: {path}")
             return False
-        with self._lock:
-            if name in self._sessions:
-                return True
-            path = self.model_dir / f"{name}.onnx"
-            if not path.exists():
-                Logger.warning(f"AIEngine: нет файла {path}")
-                return False
-            try:
-                opts = _ORT.SessionOptions()
-                opts.intra_op_num_threads = 2
-                opts.inter_op_num_threads = 1
-                opts.graph_optimization_level = _ORT.GraphOptimizationLevel.ORT_ENABLE_ALL
-                self._sessions[name] = _ORT.InferenceSession(
-                    str(path),
-                    sess_options=opts,
-                    providers=["CPUExecutionProvider"],
-                )
-                Logger.info(f"AIEngine: загружена модель {name}")
-                return True
-            except Exception as e:
-                Logger.error(f"AIEngine: не удалось загрузить {name}: {e}")
-                return False
+        try:
+            opts = OrtSessionOptions()
+            opts.setIntraOpNumThreads(2)
+            opts.setInterOpNumThreads(1)
+            # Опционально: opts.addNnapi() или opts.addXnnpack()
+            self.sessions[name] = self.env.createSession(path, opts)
+            Logger.info(f"AIEngine: загружена модель {name}")
+            return True
+        except Exception as e:
+            Logger.error(f"AIEngine: ошибка загрузки {name}: {e}")
+            return False
 
-    def run(self, name: str, inputs: dict):
-        """Синхронный инференс. inputs: {input_name: np.ndarray}."""
+    def run(self, name, inputs):
+        """inputs: dict {input_name: np.ndarray}. Возвращает dict {output_name: np.ndarray}."""
         if not self.load(name):
             return None
-        sess = self._sessions[name]
+        session = self.sessions[name]
+        jmap = HashMap()
+        for in_name, arr in inputs.items():
+            arr = np.ascontiguousarray(arr)
+            if arr.dtype == np.float32:
+                flat = arr.ravel()
+                bb = ByteBuffer.wrap(flat.tobytes())
+                bb.order(ByteOrder.nativeOrder())
+                fb = bb.asFloatBuffer()
+                tensor = OnnxTensor.createTensor(self.env, fb, list(arr.shape))
+            elif arr.dtype == np.int64:
+                flat = arr.ravel().astype(np.int64)
+                bb = ByteBuffer.wrap(flat.tobytes())
+                bb.order(ByteOrder.nativeOrder())
+                lb = bb.asLongBuffer()
+                tensor = OnnxTensor.createTensor(self.env, lb, list(arr.shape))
+            else:
+                raise TypeError(f"Unsupported dtype: {arr.dtype}")
+            jmap.put(in_name, tensor)
+
         try:
-            return sess.run(None, inputs)
+            results = session.run(jmap)
         except Exception as e:
             Logger.error(f"AIEngine.run({name}): {e}")
             return None
 
-    def input_spec(self, name: str):
-        """Вернуть (name, shape) первого входа."""
-        if not self.load(name):
-            return None
-        sess = self._sessions[name]
-        inp = sess.get_inputs()[0]
-        return inp.name, inp.shape
+        # Определяем выходные имена из сессии
+        out_info = session.getOutputInfo()
+        out_dict = {}
+        for out_name in out_info.keySet().toArray():
+            out_name = str(out_name)
+            tensor_obj = results.get(out_name).get()
+            # Читаем float-массив
+            buf = tensor_obj.getByteBuffer()
+            shape = list(tensor_obj.getInfo().getShape())
+            arr = np.frombuffer(buf.array(), dtype=np.float32)
+            # Учитываем возможный паддинг
+            import math
+            total = 1
+            for s in shape:
+                total *= s
+            arr = arr[:total].reshape(shape)
+            out_dict[out_name] = arr
+        return out_dict
 
-    def unload(self, name: str):
-        with self._lock:
-            self._sessions.pop(name, None)
-
-    def unload_all(self):
-        with self._lock:
-            self._sessions.clear()
-
-    def list_models(self):
-        return sorted(p.stem for p in self.model_dir.glob("*.onnx"))
+    def unload(self, name):
+        self.sessions.pop(name, None)

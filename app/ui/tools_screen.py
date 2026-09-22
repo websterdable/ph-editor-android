@@ -339,6 +339,8 @@ class ToolsScreen(Screen):
                         "WEBP": "image/webp"}[self.target_format]
                 if save_to_gallery(out_path, mime=mime):
                     msg += " · в галерее"
+                else:
+                    msg += " · НЕ удалось экспортировать"
 
             self.info.text = msg
         except Exception as e:

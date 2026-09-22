@@ -77,12 +77,21 @@ class LoadingOverlay(FloatLayout):
                 Animation(opacity=1, duration=0.6))
         anim.repeat = True
         anim.start(self._dot)
-
+    '''
     def hide(self):
         Animation(opacity=0, duration=0.15).start(self)
         Clock.schedule_once(self._really_hide, 0.2)
         Animation.cancel_all(self._dot)
-    
+    '''
+
+    def hide(self):
+        # Мгновенно скрываем — не ждём анимации, чтобы не блокировать тапы
+        self.opacity = 0
+        self.disabled = True
+        self.size_hint = (None, None)
+        self.size = (0, 0)
+        Animation.cancel_all(self._dot)
+
     def on_touch_down(self, touch):
         if self.opacity < 0.1:
             return False  # пропустить тап вниз, в ScreenManager
@@ -98,13 +107,16 @@ class LoadingOverlay(FloatLayout):
             return False
         return super().on_touch_up(touch)
 
-
+    '''
     def _really_hide(self, dt):
         self.disabled = True
         self.opacity = 0
         # Схлопываем, чтобы виджет не занимал место и не ловил тапы
         self.size_hint = (None, None)
         self.size = (0, 0)
+    '''
+    def _really_hide(self, dt):
+        pass
 
 
 # Глобальный синглтон (инжектируется в ScreenManager)

@@ -9,7 +9,7 @@ source.exclude_dirs = .git,.github,venv,venv-photoai,__pycache__,.buildozer,bin,
 
 version = 0.5.0
 
-requirements = python3==3.10.11,kivy==2.2.1,pyjnius
+requirements = python3==3.10.11,kivy==2.2.1,pyjnius,numpy==1.24.4
 
 p4a.branch = v2023.09.16
 
@@ -23,6 +23,8 @@ android.ndk = 25b
 android.ndk_api = 24
 android.accept_sdk_license = True
 android.archs = arm64-v8a
+
+android.gradle_dependencies = com.microsoft.onnxruntime:onnxruntime-android:1.22.0
 
 android.permissions = READ_EXTERNAL_STORAGE,READ_MEDIA_IMAGES,WRITE_EXTERNAL_STORAGE
 android.private_storage = True

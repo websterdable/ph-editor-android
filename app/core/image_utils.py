@@ -34,9 +34,15 @@ def load_image(path):
             Logger.error("load_image: пустые пиксели")
             return None
 
-        r = pixels[0::4]
-        g = pixels[1::4]
-        b = pixels[2::4]
+        # Kivy CoreImage даёт пиксели снизу вверх, разворачиваем строки
+        row_size = w * 4
+        flipped = bytearray()
+        for y in range(h - 1, -1, -1):
+            flipped += pixels[y * row_size:(y + 1) * row_size]
+
+        r = flipped[0::4]
+        g = flipped[1::4]
+        b = flipped[2::4]
         rgb = bytearray(w * h * 3)
         rgb[0::3] = r
         rgb[1::3] = g

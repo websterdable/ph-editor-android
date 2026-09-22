@@ -45,7 +45,7 @@ class HomeScreen(Screen):
             on_press=lambda: self._go("tools")))
         root.add_widget(ModuleCard(
             icon=ICON_AI, title="ИИ-Редактор",
-            subtitle="Скоро: апскейл, лица, фон",
+            subtitle="Апскейл, лица, фон",
             on_press=lambda: self._go("ai")))
 
         root.add_widget(BoxLayout())
