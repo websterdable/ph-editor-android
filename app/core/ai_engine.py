@@ -1,4 +1,10 @@
-"""Обёртка над OnnxHelper. Модели ищем в файловой системе приложения."""
+"""Обёртка над OnnxHelper. Модели ищем в файловой системе приложения.
+
+Поддерживает:
+- INT8-квантизованные модели (суффикс _int8.onnx)
+- Companion-файлы .data (для моделей с external weights)
+- Автоматическое копирование из бандла APK в приватную папку
+"""
 import os
 import shutil
 from kivy.logger import Logger
@@ -7,8 +13,22 @@ from jnius import autoclass
 OnnxHelper = autoclass("org.local.photoai.OnnxHelper")
 
 
+# Публичное имя -> список файлов (первый — основной .onnx, далее companion-файлы)
+MODEL_FILES = {
+    "yunet":         ["yunet_int8.onnx"],
+    "modnet":        ["modnet_int8.onnx"],
+    "realesrgan_x4": ["realesrgan_x4_int8.onnx"],
+}
+
+# Основной .onnx для каждой модели (для передачи в loadModel)
+MODEL_MAIN = {
+    "yunet":         "yunet_int8.onnx",
+    "modnet":        "modnet_int8.onnx",
+    "realesrgan_x4": "realesrgan_x4_int8.onnx",
+}
+
+
 def _candidate_dirs():
-    """Все возможные места, где может лежать assets/models."""
     cwd = os.getcwd()
     here = os.path.dirname(os.path.abspath(__file__))
     return [
@@ -22,72 +42,65 @@ def _candidate_dirs():
     ]
 
 
-def _find_model(name):
-    """Найти файл модели в бандле. Возвращает полный путь или None."""
-    filename = f"{name}.onnx"
+def _find_in_bundle(filename):
     for d in _candidate_dirs():
         p = os.path.join(d, filename)
         try:
             if os.path.exists(p) and os.path.getsize(p) > 0:
-                Logger.info(f"AIEngine: найден в бандле: {p}")
                 return p
         except Exception:
             continue
     return None
 
 
-def _ensure_models(model_dir, names):
+def _copy_asset(fname, model_dir):
+    dst = os.path.join(model_dir, fname)
+    if os.path.exists(dst) and os.path.getsize(dst) > 0:
+        return True
+    src = _find_in_bundle(fname)
+    if src is None:
+        return False
+    try:
+        shutil.copyfile(src, dst)
+        size_mb = os.path.getsize(dst) / 1024 / 1024
+        Logger.info(f"AIEngine: скопирован {fname} ({size_mb:.1f} МБ)")
+        return True
+    except Exception as e:
+        Logger.error(f"AIEngine: ошибка копирования {fname}: {e}")
+        return False
+
+
+def _ensure_models(model_dir):
     os.makedirs(model_dir, exist_ok=True)
-    for name in names:
-        dst = os.path.join(model_dir, f"{name}.onnx")
-        if os.path.exists(dst) and os.path.getsize(dst) > 0:
-            Logger.info(f"AIEngine: {name}.onnx уже в private dir")
-            continue
-        src = _find_model(name)
-        if src is None:
-            Logger.warning(f"AIEngine: {name}.onnx не найден ни в одной папке")
-            # Логируем содержимое cwd для диагностики
-            try:
-                cwd = os.getcwd()
-                Logger.info(f"AIEngine: cwd={cwd}")
-                for root, dirs, files in os.walk(cwd):
-                    depth = root[len(cwd):].count(os.sep)
-                    if depth <= 3 and any(f.endswith('.onnx') for f in files):
-                        Logger.info(f"AIEngine: нашли onnx в {root}")
-                        for f in files:
-                            if f.endswith('.onnx'):
-                                Logger.info(f"AIEngine:   {f}")
-            except Exception:
-                pass
-            continue
-        try:
-            shutil.copyfile(src, dst)
-            size_mb = os.path.getsize(dst) / 1024 / 1024
-            Logger.info(f"AIEngine: скопирована {name}.onnx ({size_mb:.1f} МБ) -> {dst}")
-        except Exception as e:
-            Logger.error(f"AIEngine: ошибка копирования {name}: {e}")
+    for name, files in MODEL_FILES.items():
+        for fname in files:
+            if not _copy_asset(fname, model_dir):
+                Logger.warning(f"AIEngine: {fname} не найден в бандле")
 
 
 class AIEngine:
-    KNOWN_MODELS = ["yunet", "realesrgan_x4", "modnet"]
-
     def __init__(self, model_dir):
         self.model_dir = model_dir
         self.handles = {}
-        _ensure_models(model_dir, self.KNOWN_MODELS)
-        for name in self.KNOWN_MODELS:
-            p = os.path.join(model_dir, f"{name}.onnx")
+        _ensure_models(model_dir)
+        # Логируем, что в итоге есть
+        for name in MODEL_MAIN:
+            p = os.path.join(model_dir, MODEL_MAIN[name])
             sz = os.path.getsize(p) // 1024 if os.path.exists(p) else 0
-            Logger.info(f"AIEngine: {name}.onnx — {sz} КБ")
+            Logger.info(f"AIEngine: {name} — {sz} КБ")
 
     def has_model(self, name):
-        p = os.path.join(self.model_dir, f"{name}.onnx")
+        if name not in MODEL_MAIN:
+            return False
+        p = os.path.join(self.model_dir, MODEL_MAIN[name])
         return os.path.exists(p) and os.path.getsize(p) > 0
 
     def load(self, name):
         if name in self.handles:
             return True
-        path = os.path.join(self.model_dir, f"{name}.onnx")
+        if name not in MODEL_MAIN:
+            return False
+        path = os.path.join(self.model_dir, MODEL_MAIN[name])
         if not os.path.exists(path):
             return False
         h_id = OnnxHelper.loadModel(path)
@@ -114,15 +127,16 @@ class AIEngine:
                 return None
 
             data = bytes(packed)
-            if len(data) < 16:
+            # Заголовок: 4 байта rank + 16 байт (4 int32 = до 4 измерений)
+            # Итого 20 байт до данных
+            if len(data) < 20:
                 Logger.error(f"AIEngine.run({name}): packed слишком мал ({len(data)})")
                 return None
 
-            # Читаем shape из первых 16 байт
             rank = struct.unpack_from("<i", data, 0)[0]
             d0, d1, d2, d3 = struct.unpack_from("<iiii", data, 4)
             out_shape = [d0, d1, d2, d3][:rank]
-            float_bytes = data[16:]
+            float_bytes = data[20:]  # ← было 16, теперь правильно 20
 
             Logger.info(f"AIEngine.run({name}): out shape={out_shape}")
 
