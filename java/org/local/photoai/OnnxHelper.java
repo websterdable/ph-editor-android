@@ -1,9 +1,11 @@
 package org.local.photoai;
 
+import ai.onnxruntime.NodeInfo;
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxValue;
 import ai.onnxruntime.OrtEnvironment;
 import ai.onnxruntime.OrtSession;
+import ai.onnxruntime.TensorInfo;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -35,24 +37,26 @@ public class OnnxHelper {
             OrtSession session = ENV.createSession(path, opts);
             int id = nextId++;
 
-            Iterator<Map.Entry<String, ai.onnxruntime.NodeInfo>> it =
+            Iterator<Map.Entry<String, NodeInfo>> it =
                     session.getInputInfo().entrySet().iterator();
             String inName = "input";
             if (it.hasNext()) {
-                Map.Entry<String, ai.onnxruntime.NodeInfo> e = it.next();
+                Map.Entry<String, NodeInfo> e = it.next();
                 inName = e.getKey();
-                long[] ishape = e.getValue().getInfo().getShape();
-                System.out.println("[OnnxHelper] input name=" + inName + " shape=" + shapeToString(ishape));
+                long[] ishape = shapeOf(e.getValue());
+                System.out.println("[OnnxHelper] input name=" + inName +
+                        " shape=" + shapeToString(ishape));
             }
             INPUT_NAMES.put(id, inName);
             SESSIONS.put(id, session);
 
-            Iterator<Map.Entry<String, ai.onnxruntime.NodeInfo>> oit =
+            Iterator<Map.Entry<String, NodeInfo>> oit =
                     session.getOutputInfo().entrySet().iterator();
             while (oit.hasNext()) {
-                Map.Entry<String, ai.onnxruntime.NodeInfo> e = oit.next();
-                long[] oshape = e.getValue().getInfo().getShape();
-                System.out.println("[OnnxHelper] output name=" + e.getKey() + " shape=" + shapeToString(oshape));
+                Map.Entry<String, NodeInfo> e = oit.next();
+                long[] oshape = shapeOf(e.getValue());
+                System.out.println("[OnnxHelper] output name=" + e.getKey() +
+                        " shape=" + shapeToString(oshape));
             }
             return id;
         } catch (Exception e) {
@@ -60,6 +64,19 @@ public class OnnxHelper {
             e.printStackTrace();
             return -1;
         }
+    }
+
+    /** Безопасно достать shape из NodeInfo (ValueInfo -> TensorInfo). */
+    private static long[] shapeOf(NodeInfo nodeInfo) {
+        try {
+            Object info = nodeInfo.getInfo();
+            if (info instanceof TensorInfo) {
+                return ((TensorInfo) info).getShape();
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        return new long[0];
     }
 
     private static String shapeToString(long[] s) {
