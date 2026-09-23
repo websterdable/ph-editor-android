@@ -21,12 +21,14 @@ public class OnnxHelper {
     private static final Map<Integer, String> INPUT_NAMES = new HashMap<>();
     private static int nextId = 1;
 
-    // Строка ошибки последнего вызова (null = ok). Читается через getLastError().
+    // Текст последней ошибки (null = ok). Читается через getLastError().
     private static String lastError = null;
 
     public static String getLastError() {
         return lastError;
     }
+
+    // ─── Загрузка модели ────────────────────────────────────────
 
     public static synchronized int loadModel(String path) {
         try {
@@ -66,7 +68,6 @@ public class OnnxHelper {
         }
     }
 
-    /** Безопасно достать shape из NodeInfo (ValueInfo -> TensorInfo). */
     private static long[] shapeOf(NodeInfo nodeInfo) {
         try {
             Object info = nodeInfo.getInfo();
@@ -79,25 +80,6 @@ public class OnnxHelper {
         return new long[0];
     }
 
-
-    /** Рекурсивно уплощает float[]/Object[] в плоский float[]. */
-    private static int flattenFloats(Object src, float[] dst, int offset) {
-        if (src == null) return offset;
-        if (src instanceof float[]) {
-            float[] a = (float[]) src;
-            System.arraycopy(a, 0, dst, offset, a.length);
-            return offset + a.length;
-        }
-        if (src instanceof Object[]) {
-            for (Object sub : (Object[]) src) {
-                offset = flattenFloats(sub, dst, offset);
-            }
-            return offset;
-        }
-        // Скаляр или неожиданный тип — заполняем нулями
-        return offset;
-    }
-
     private static String shapeToString(long[] s) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < s.length; i++) {
@@ -106,6 +88,8 @@ public class OnnxHelper {
         }
         return sb.append("]").toString();
     }
+
+    // ─── Конвертация входа HWC uint8 -> CHW float32 ────────────
 
     private static byte[] hwcU8ToChwF32(byte[] hwc, int w, int h, float scale) {
         int n = w * h;
@@ -120,16 +104,19 @@ public class OnnxHelper {
                 chw[2 * n + dst] = (hwc[src + 2] & 0xFF) * scale;
             }
         }
-        ByteBuffer bb = ByteBuffer.allocate(chw.length * 4).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer bb = ByteBuffer.allocate(chw.length * 4)
+                .order(ByteOrder.LITTLE_ENDIAN);
         bb.asFloatBuffer().put(chw);
         return bb.array();
     }
 
+    // ─── Инференс ───────────────────────────────────────────────
+
     /**
-     * Инференс. Возвращает byte[] вида:
+     * Запуск модели. Возвращает byte[] вида:
      *   [int32 rank][int32 d0][int32 d1][int32 d2][int32 d3][float32 data...]
-     * shape занимает ровно 16 байт, дальше — сырые float32 значения.
-     * При ошибке возвращает null, а текст ошибки доступен через getLastError().
+     * Первые 16 байт — shape. Дальше — сырые float32 (LE).
+     * При ошибке возвращает null, текст ошибки — в getLastError().
      */
     public static synchronized byte[] runModelU8(
             int id, byte[] hwc, int w, int h, float scale) {
@@ -166,47 +153,46 @@ public class OnnxHelper {
                 return null;
             }
             Map.Entry<String, OnnxValue> firstOut = it.next();
-            OnnxValue value = firstOut.getValue();
-            if (!(value instanceof OnnxTensor)) {
+            OnnxValue outValue = firstOut.getValue();
+            if (!(outValue instanceof OnnxTensor)) {
                 lastError = "output is not a tensor";
                 return null;
             }
-            OnnxTensor outTensor = (OnnxTensor) value;
+            OnnxTensor outTensor = (OnnxTensor) outValue;
             long[] outShape = outTensor.getInfo().getShape();
             System.out.println("[OnnxHelper] out shape=" + shapeToString(outShape));
 
-            // Читаем значение через getValue() — многомерный Java-массив
-            Object value = outTensor.getValue();
+            // Считаем общий размер из shape
             long totalFloats = 1;
             for (long s : outShape) totalFloats *= s;
             if (totalFloats <= 0 || totalFloats > 100_000_000L) {
                 lastError = "unreasonable output size: " + totalFloats;
                 return null;
             }
+
+            // Читаем через getValue() — многомерный Java-массив float/Object
+            Object rawValue = outTensor.getValue();
             float[] flat = new float[(int) totalFloats];
-            int written = flattenFloats(value, flat, 0);
+            int written = flattenFloats(rawValue, flat, 0);
             if (written != totalFloats) {
                 lastError = "flatten size mismatch: " + written +
                         " expected " + totalFloats;
                 return null;
             }
 
-            // floats -> bytes (LE)
-            ByteBuffer dataBuf = ByteBuffer.allocate(flat.length * 4)
-                    .order(ByteOrder.LITTLE_ENDIAN);
-            dataBuf.asFloatBuffer().put(flat);
-            byte[] outData = dataBuf.array();
-
-
-
-            // Печатаем первые значения для отладки
+            // Отладочный вывод первых 5 значений
             StringBuilder vals = new StringBuilder();
             for (int i = 0; i < Math.min(5, flat.length); i++) {
                 vals.append(flat[i]).append(" ");
             }
             System.out.println("[OnnxHelper] first values: " + vals);
 
-            // Упаковываем результат: 16 байт shape + data
+            // Упаковка: 16 байт shape + данные
+            ByteBuffer dataBuf = ByteBuffer.allocate(flat.length * 4)
+                    .order(ByteOrder.LITTLE_ENDIAN);
+            dataBuf.asFloatBuffer().put(flat);
+            byte[] outData = dataBuf.array();
+
             ByteBuffer result = ByteBuffer.allocate(16 + outData.length)
                     .order(ByteOrder.LITTLE_ENDIAN);
             result.putInt(outShape.length);
@@ -216,6 +202,7 @@ public class OnnxHelper {
             }
             result.put(outData);
             return result.array();
+
         } catch (Exception e) {
             System.out.println("[OnnxHelper] run error: " + e);
             e.printStackTrace();
@@ -224,7 +211,26 @@ public class OnnxHelper {
         }
     }
 
-    /** CHW float32 (из shape [1,3,H,W]) -> HWC uint8. */
+    /** Рекурсивно уплощает float[]/Object[] в плоский float[]. */
+    private static int flattenFloats(Object src, float[] dst, int offset) {
+        if (src == null) return offset;
+        if (src instanceof float[]) {
+            float[] a = (float[]) src;
+            System.arraycopy(a, 0, dst, offset, a.length);
+            return offset + a.length;
+        }
+        if (src instanceof Object[]) {
+            for (Object sub : (Object[]) src) {
+                offset = flattenFloats(sub, dst, offset);
+            }
+            return offset;
+        }
+        return offset;
+    }
+
+    // ─── Конвертация выхода CHW float32 -> HWC uint8 ───────────
+
+    /** [1,3,H,W] -> HWC uint8. */
     public static byte[] chwF32ToHwcU8(byte[] data, int[] shape) {
         if (shape == null || shape.length != 4 || shape[1] != 3) return null;
         int h = shape[2], w = shape[3];
@@ -240,7 +246,7 @@ public class OnnxHelper {
         return out;
     }
 
-    /** CHW float32 (из shape [1,1,H,W]) -> HWC uint8 (серое). */
+    /** [1,1,H,W] -> HWC uint8 (серое). */
     public static byte[] chw1ToHwcU8(byte[] data, int[] shape) {
         if (shape == null || shape.length != 4 || shape[1] != 1) return null;
         int h = shape[2], w = shape[3];
