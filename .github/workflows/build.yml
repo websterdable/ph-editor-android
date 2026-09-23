@@ -60,7 +60,7 @@ jobs:
         run: |
           mkdir -p assets/models
           cd assets/models
-          BASE="https://github.com/websterdable/photoai-android/releases/download/models-v1"
+          BASE="https://github.com/websterdable/ph-editor-android/releases/tag/models-v1"
           wget -q -O yunet_int8.onnx         "$BASE/yunet_int8.onnx"
           wget -q -O modnet_int8.onnx        "$BASE/modnet_int8.onnx"
           wget -q -O realesrgan_x4_int8.onnx "$BASE/realesrgan_x4_int8.onnx"
