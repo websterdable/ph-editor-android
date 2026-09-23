@@ -7,3 +7,6 @@ bin/
 *.apk
 *.aab
 .DS_Store
+# AI models — скачиваются из GitHub Release при сборке
+assets/models/*.onnx
+assets/models/*.data
