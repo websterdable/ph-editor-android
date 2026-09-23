@@ -193,7 +193,7 @@ public class OnnxHelper {
             dataBuf.asFloatBuffer().put(flat);
             byte[] outData = dataBuf.array();
 
-            ByteBuffer result = ByteBuffer.allocate(16 + outData.length)
+            ByteBuffer result = ByteBuffer.allocate(20 + outData.length)
                     .order(ByteOrder.LITTLE_ENDIAN);
             result.putInt(outShape.length);
             for (int i = 0; i < 4; i++) {
