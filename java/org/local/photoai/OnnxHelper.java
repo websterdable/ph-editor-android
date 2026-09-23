@@ -162,9 +162,18 @@ public class OnnxHelper {
                 return null;
             }
             bb.order(ByteOrder.LITTLE_ENDIAN);
-            int total = bb.remaining() / 4;
-            byte[] outData = new byte[total * 4];
-            bb.get(outData, 0, total * 4);
+
+            // Считаем количество float из shape, а не из buffer.remaining()
+            long totalFloats = 1;
+            for (long s : outShape) totalFloats *= s;
+            int totalBytes = (int) totalFloats * 4;
+            byte[] outData = new byte[totalBytes];
+
+            bb.rewind();  // позиция в начало
+            // Читаем ровно totalBytes байт через байтовый буфер
+            for (int i = 0; i < totalBytes; i++) {
+                outData[i] = bb.get();
+            }
 
             // Печатаем первые значения для отладки
             FloatBuffer check = ByteBuffer.wrap(outData)
