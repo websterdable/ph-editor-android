@@ -8,7 +8,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.image import Image as KivyImage
 from kivy.uix.scrollview import ScrollView
-from kivy.graphics import Color, Rectangle
+from kivy.graphics import Color, Rectangle, Line
 
 from app.core import image_utils as iu
 from app.core.file_picker import pick_image
@@ -80,6 +80,12 @@ class AIScreen(Screen):
             size_hint_y=None, height=dp(48),
             on_release=lambda *_: self._run("bg")))
 
+        page.add_widget(self._section("Детекция лиц (YuNet)"))
+        page.add_widget(PillButton(
+            text="Найти лица", variant="secondary",
+            size_hint_y=None, height=dp(48),
+            on_release=lambda *_: self._run("detect")))
+
         page.add_widget(BoxLayout(size_hint_y=None, height=dp(24)))
 
         page_scroll.add_widget(page)
@@ -135,6 +141,10 @@ class AIScreen(Screen):
                 result = aio.upscale(self.engine, b, w, h)
             elif op == "bg":
                 result = aio.remove_background(self.engine, b, w, h)
+            elif op == "detect":
+                faces = aio.detect_faces(self.engine, b, w, h)
+                Clock.schedule_once(lambda dt: self._on_faces(faces, w, h), 0)
+                return
 
             if result is None:
                 Clock.schedule_once(
@@ -150,6 +160,52 @@ class AIScreen(Screen):
         finally:
             self._busy = False
 
+
+    def _on_faces(self, faces, w, h):
+        # Очищаем старые прямоугольники
+        self.preview.canvas.after.clear()
+        if not faces:
+            self.status.text = "Лица не найдены"
+            return
+        with self.preview.canvas.after:
+            Color(1, 0.2, 0.4, 1)  # красный
+            for (x, y, fw, fh, score) in faces:
+                # Пересчёт координат: превью может быть отмасштабировано
+                # Kivy Image отображает центр. Используем нормированные координаты.
+                nx = x / w
+                ny = y / h
+                nw = fw / w
+                nh = fh / h
+
+                # Размеры виджета preview
+                pv_w, pv_h = self.preview.size
+                pv_x, pv_y = self.preview.pos
+
+                # Пропорции: сохранить соотношение
+                img_ratio = w / h
+                pv_ratio = pv_w / pv_h
+                if img_ratio > pv_ratio:
+                    # картинка шире — по ширине
+                    draw_w = pv_w
+                    draw_h = pv_w / img_ratio
+                    offset_x = 0
+                    offset_y = (pv_h - draw_h) / 2
+                else:
+                    draw_h = pv_h
+                    draw_w = pv_h * img_ratio
+                    offset_x = (pv_w - draw_w) / 2
+                    offset_y = 0
+
+                rx = pv_x + offset_x + nx * draw_w
+                # Kivy Y от низа, у нас Y сверху -> инверсия
+                ry = pv_y + offset_y + (1 - ny - nh) * draw_h
+                rw = nw * draw_w
+                rh = nh * draw_h
+
+                Line(rectangle=(rx, ry, rw, rh), width=1.5)
+
+        self.status.text = f"Найдено лиц: {len(faces)}"
+        
     def _on_result(self, result):
         out_bytes, ow, oh = result
         self.img = (out_bytes, ow, oh)

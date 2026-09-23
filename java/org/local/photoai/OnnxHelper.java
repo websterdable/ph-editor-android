@@ -1,5 +1,8 @@
 package org.local.photoai;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import ai.onnxruntime.NodeInfo;
 import ai.onnxruntime.OnnxTensor;
 import ai.onnxruntime.OnnxValue;
@@ -267,5 +270,152 @@ public class OnnxHelper {
         if (v < 0) return 0;
         if (v > 255) return 255;
         return v;
+    }
+    // ─── YuNet: детекция лиц ────────────────────────────────────
+
+    /**
+     * Запускает YuNet (детекция лиц). Возвращает int[] вида:
+     *   [count, x1, y1, w1, h1, score1*10000, x2, y2, w2, h2, score2*10000, ...]
+     * Или null при ошибке.
+     */
+    public static synchronized int[] runYuNet(int id, byte[] hwc, int w, int h) {
+        lastError = null;
+        try {
+            OrtSession session = SESSIONS.get(id);
+            if (session == null) { lastError = "session not found"; return null; }
+            if (hwc == null || hwc.length != w * h * 3) {
+                lastError = "invalid input"; return null;
+            }
+
+            // YuNet: вход CHW float32, scale=1.0 (без нормализации)
+            byte[] chwBytes = hwcU8ToChwF32(hwc, w, h, 1.0f);
+            FloatBuffer fb = ByteBuffer.wrap(chwBytes)
+                    .order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+            long[] inputShape = new long[]{1, 3, h, w};
+            OnnxTensor input = OnnxTensor.createTensor(ENV, fb, inputShape);
+
+            Map<String, OnnxTensor> inputs = new HashMap<>();
+            inputs.put(INPUT_NAMES.get(id), input);
+            OrtSession.Result results = session.run(inputs);
+
+            // Собираем все выходы
+            Map<String, float[]> out = new HashMap<>();
+            Iterator<Map.Entry<String, OnnxValue>> it = results.iterator();
+            while (it.hasNext()) {
+                Map.Entry<String, OnnxValue> e = it.next();
+                if (!(e.getValue() instanceof OnnxTensor)) continue;
+                OnnxTensor t = (OnnxTensor) e.getValue();
+                long[] os = t.getInfo().getShape();
+                long total = 1;
+                for (long s : os) total *= s;
+                Object raw = t.getValue();
+                float[] flat = new float[(int) total];
+                flattenFloats(raw, flat, 0);
+                out.put(e.getKey(), flat);
+                System.out.println("[OnnxHelper] yuNet out " + e.getKey() +
+                        " shape=" + shapeToString(os));
+            }
+
+            // Ищем ключи (могут быть cls_8, cls_8_extra, output_cls_8, ...)
+            int[][] stridesArr = {{8, 0}, {16, 1}, {32, 2}};
+            List<float[]> faces = new ArrayList<>();
+
+            for (int[] item : stridesArr) {
+                int stride = item[0];
+                String clsK  = findKey(out, "cls", stride);
+                String objK  = findKey(out, "obj", stride);
+                String bboxK = findKey(out, "bbox", stride);
+                if (clsK == null || objK == null || bboxK == null) {
+                    System.out.println("[OnnxHelper] yuNet: keys missing for stride " + stride);
+                    continue;
+                }
+                float[] cls  = out.get(clsK);
+                float[] obj  = out.get(objK);
+                float[] bbox = out.get(bboxK);
+
+                int fw = w / stride;
+                int fh = h / stride;
+                int n = fw * fh;
+                System.out.println("[OnnxHelper] yuNet stride=" + stride +
+                        " fw=" + fw + " fh=" + fh + " n=" + n +
+                        " cls.len=" + cls.length);
+
+                for (int idx = 0; idx < n && idx < cls.length; idx++) {
+                    float score = (float) Math.sqrt(
+                            Math.max(0f, cls[idx]) * Math.max(0f, obj[idx]));
+                    if (score < 0.6f) continue;
+                    int i = idx / fw;
+                    int j = idx % fw;
+                    float cx = (j + 0.5f) * stride + bbox[idx * 4] * stride;
+                    float cy = (i + 0.5f) * stride + bbox[idx * 4 + 1] * stride;
+                    float bw = (float) Math.exp(bbox[idx * 4 + 2]) * stride;
+                    float bh = (float) Math.exp(bbox[idx * 4 + 3]) * stride;
+                    faces.add(new float[]{
+                        cx - bw / 2, cy - bh / 2, bw, bh, score
+                    });
+                }
+            }
+
+            System.out.println("[OnnxHelper] yuNet raw faces: " + faces.size());
+            faces = nms(faces, 0.3f);
+            System.out.println("[OnnxHelper] yuNet after NMS: " + faces.size());
+
+            int[] result = new int[1 + faces.size() * 5];
+            result[0] = faces.size();
+            for (int i = 0; i < faces.size(); i++) {
+                float[] f = faces.get(i);
+                result[1 + i * 5]     = (int) f[0];
+                result[1 + i * 5 + 1] = (int) f[1];
+                result[1 + i * 5 + 2] = (int) f[2];
+                result[1 + i * 5 + 3] = (int) f[3];
+                result[1 + i * 5 + 4] = (int) (f[4] * 10000);
+            }
+            return result;
+        } catch (Exception e) {
+            System.out.println("[OnnxHelper] yuNet error: " + e);
+            e.printStackTrace();
+            lastError = e.toString();
+            return null;
+        }
+    }
+
+    private static String findKey(Map<String, float[]> out, String prefix, int stride) {
+        String target = prefix + "_" + stride;
+        for (String key : out.keySet()) {
+            if (key.equals(target) || key.endsWith(target) || key.contains(target)) {
+                return key;
+            }
+        }
+        return null;
+    }
+
+    private static List<float[]> nms(List<float[]> faces, float iouThresh) {
+        List<float[]> sorted = new ArrayList<>(faces);
+        sorted.sort((a, b) -> Float.compare(b[4], a[4]));
+        List<float[]> keep = new ArrayList<>();
+        while (!sorted.isEmpty()) {
+            float[] best = sorted.remove(0);
+            keep.add(best);
+            List<float[]> remaining = new ArrayList<>();
+            for (float[] f : sorted) {
+                if (iou(best, f) < iouThresh) remaining.add(f);
+            }
+            sorted = remaining;
+        }
+        return keep;
+    }
+
+    private static float iou(float[] a, float[] b) {
+        float ax1 = a[0], ay1 = a[1], ax2 = a[0] + a[2], ay2 = a[1] + a[3];
+        float bx1 = b[0], by1 = b[1], bx2 = b[0] + b[2], by2 = b[1] + b[3];
+        float ix1 = Math.max(ax1, bx1);
+        float iy1 = Math.max(ay1, by1);
+        float ix2 = Math.min(ax2, bx2);
+        float iy2 = Math.min(ay2, by2);
+        float iw = Math.max(0, ix2 - ix1);
+        float ih = Math.max(0, iy2 - iy1);
+        float inter = iw * ih;
+        float union = a[2] * a[3] + b[2] * b[3] - inter;
+        return union > 0 ? inter / union : 0;
     }
 }

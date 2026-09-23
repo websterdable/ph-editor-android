@@ -143,3 +143,50 @@ def remove_background(engine, img_rgb_bytes, w, h):
     out_bytes, ow, oh = result
     # Пока просто возвращаем результат (альфу добавим позже)
     return out_bytes, ow, oh
+
+def detect_faces(engine, rgb_bytes, w, h):
+    """YuNet-детекция лиц. Возвращает список [(x, y, w, h, score), ...].
+
+    Без numpy: используется int[] от Java.
+    """
+    if not engine.load("yunet"):
+        return []
+
+    # YuNet работает с фиксированным входом 320x320.
+    # Наша фото -> ресайз до 320x320 (nearest-neighbor).
+    YUNET_SIZE = 320
+    small = resize_hwc_u8(rgb_bytes, w, h, YUNET_SIZE, YUNET_SIZE)
+
+    try:
+        from jnius import autoclass
+        OnnxHelper = autoclass("org.local.photoai.OnnxHelper")
+        handle = engine.handles["yunet"]
+        packed = OnnxHelper.runYuNet(handle, small, YUNET_SIZE, YUNET_SIZE)
+    except Exception as e:
+        from kivy.logger import Logger
+        Logger.exception(f"detect_faces: {e}")
+        return []
+
+    if packed is None:
+        return []
+
+    # pyjnius возвращает Java int[] — превращаем в Python list
+    arr = list(packed)
+    if not arr:
+        return []
+    count = arr[0]
+    scale_x = w / YUNET_SIZE
+    scale_y = h / YUNET_SIZE
+
+    faces = []
+    for i in range(count):
+        base = 1 + i * 5
+        if base + 4 >= len(arr):
+            break
+        x = int(arr[base] * scale_x)
+        y = int(arr[base + 1] * scale_y)
+        fw = int(arr[base + 2] * scale_x)
+        fh = int(arr[base + 3] * scale_y)
+        score = arr[base + 4] / 10000.0
+        faces.append((x, y, fw, fh, score))
+    return faces
