@@ -17,6 +17,8 @@ android.add_src = java
 # ONNX Runtime AAR из Maven Central
 android.gradle_dependencies = com.microsoft.onnxruntime:onnxruntime-android:1.22.0
 
+# Увеличиваем heap Gradle для сборки больших APK с моделями
+android.gradle_max_heap_size = 4092m
 
 p4a.branch = v2023.09.16
 
