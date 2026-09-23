@@ -205,12 +205,28 @@ class AIScreen(Screen):
                 Line(rectangle=(rx, ry, rw, rh), width=1.5)
 
         self.status.text = f"Найдено лиц: {len(faces)}"
-        
+
     def _on_result(self, result):
         out_bytes, ow, oh = result
-        self.img = (out_bytes, ow, oh)
-        self.preview.texture = iu.to_texture(out_bytes, ow, oh)
-        self.status.text = f"Готово: {ow}x{oh}"
+        # Если длина == w*h*4 — это RGBA, показываем на белом фоне
+        if len(out_bytes) == ow * oh * 4:
+            # Композит на белом фоне для превью
+            rgb = bytearray(ow * oh * 3)
+            for i in range(ow * oh):
+                a = out_bytes[i * 4 + 3] / 255.0
+                rgb[i * 3]     = int(out_bytes[i * 4]     * a + 255 * (1 - a))
+                rgb[i * 3 + 1] = int(out_bytes[i * 4 + 1] * a + 255 * (1 - a))
+                rgb[i * 3 + 2] = int(out_bytes[i * 4 + 2] * a + 255 * (1 - a))
+            rgb_bytes = bytes(rgb)
+            self.img = (rgb_bytes, ow, oh)
+            self.preview.texture = iu.to_texture(rgb_bytes, ow, oh)
+            self.status.text = f"Готово: {ow}x{oh} (RGBA сохранён)"
+            # Сохраняем RGBA-версию отдельно
+            self._last_rgba = out_bytes
+        else:
+            self.img = (out_bytes, ow, oh)
+            self.preview.texture = iu.to_texture(out_bytes, ow, oh)
+            self.status.text = f"Готово: {ow}x{oh}"
 
     def _back(self):
         self.manager.current = "home"

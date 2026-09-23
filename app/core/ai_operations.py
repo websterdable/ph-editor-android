@@ -117,32 +117,99 @@ def resize_hwc_u8(rgb, w, h, tw, th):
     return bytes(out)
 
 
-def upscale(engine, img_rgb_bytes, w, h):
-    """Real-ESRGAN. Возвращает (bytes, w, h) или None."""
-    Logger.info(f"upscale: вход {w}x{h}")
-    result = engine.run("realesrgan_x4", img_rgb_bytes, w, h,
-                         scale=1.0 / 255.0)
+def upscale(engine, rgb_bytes, w, h):
+    """Real-ESRGAN. Возвращает (bytes, w, h) или None.
+
+    Ограничиваем вход, чтобы не ждать вечность на CPU.
+    """
+    MAX_IN = 256  # было 512, теперь 256 — быстрее в 4 раза
+    if max(w, h) > MAX_IN:
+        if w >= h:
+            tw = MAX_IN
+            th = int(h * MAX_IN / w)
+        else:
+            th = MAX_IN
+            tw = int(w * MAX_IN / h)
+        rgb_bytes = resize_hwc_u8(rgb_bytes, w, h, tw, th)
+        w, h = tw, th
+        Logger.info(f"upscale: вход уменьшен до {w}x{h}")
+
+    result = engine.run("realesrgan_x4", rgb_bytes, w, h, scale=1.0 / 255.0)
     if result is None:
         return None
-    return result
+    out_bytes, ow, oh = result
+    Logger.info(f"upscale: выход {ow}x{oh}")
+    return out_bytes, ow, oh
 
 
-def remove_background(engine, img_rgb_bytes, w, h):
-    """MODNet. Возвращает (bytes, w, h) или None. Выход — RGB (без альфы пока)."""
-    # MODNet требует размер кратный 32
-    tw = max(256, (w // 32) * 32)
-    th = max(256, (h // 32) * 32)
-    if tw != w or th != h:
-        small = resize_hwc_u8(img_rgb_bytes, w, h, tw, th)
+def remove_background(engine, rgb_bytes, w, h):
+    """MODNet. Возвращает (rgba_bytes, w, h) или None.
+
+    result от engine.run возвращает HWC uint8 (серое) — это маска альфы.
+    Мы применяем её к исходному RGB.
+    """
+    # MODNet требует размер кратный 32 и не слишком большой
+    MAX_SIDE = 480
+    if max(w, h) > MAX_SIDE:
+        if w >= h:
+            tw = MAX_SIDE
+            th = int(h * MAX_SIDE / w / 32) * 32
+        else:
+            th = MAX_SIDE
+            tw = int(w * MAX_SIDE / h / 32) * 32
     else:
-        small = img_rgb_bytes
+        tw = (w // 32) * 32
+        th = (h // 32) * 32
+    tw = max(256, tw)
+    th = max(256, th)
+
+    small = rgb_bytes
+    if tw != w or th != h:
+        small = resize_hwc_u8(rgb_bytes, w, h, tw, th)
+        Logger.info(f"MODNet: вход уменьшен {w}x{h} -> {tw}x{th}")
 
     result = engine.run("modnet", small, tw, th, scale=1.0 / 255.0)
     if result is None:
         return None
-    out_bytes, ow, oh = result
-    # Пока просто возвращаем результат (альфу добавим позже)
-    return out_bytes, ow, oh
+    mask_bytes, mw, mh = result
+    # mask_bytes — HWC 3-канала, но все одинаковые (серое). Берём первый канал.
+    mask = mask_bytes[0::3]  # длина = mw*mh
+    Logger.info(f"MODNet: маска {mw}x{mh}")
+
+    # Уменьшаем/увеличиваем маску до исходного размера и применяем к оригиналу
+    if (mw, mh) != (w, h):
+        mask = resize_gray_u8(mask, mw, mh, w, h)
+        Logger.info(f"MODNet: маска ресайзнута до {w}x{h}")
+
+    # Собираем RGBA: альфа из маски, порог для чистоты
+    rgba = bytearray(w * h * 4)
+    for i in range(w * h):
+        a = mask[i]
+        # Контрастность: ниже 40 -> 0, выше 200 -> 255
+        if a < 40:
+            a = 0
+        elif a > 200:
+            a = 255
+        else:
+            a = int((a - 40) * 255 / 160)
+        rgba[i * 4]     = rgb_bytes[i * 3]
+        rgba[i * 4 + 1] = rgb_bytes[i * 3 + 1]
+        rgba[i * 4 + 2] = rgb_bytes[i * 3 + 2]
+        rgba[i * 4 + 3] = a
+    return bytes(rgba), w, h
+
+
+def resize_gray_u8(gray, w, h, tw, th):
+    """Nearest-neighbor resize для одноканального grayscale (bytes)."""
+    out = bytearray(tw * th)
+    for y in range(th):
+        sy = y * h // th
+        row_src = sy * w
+        row_dst = y * tw
+        for x in range(tw):
+            sx = x * w // tw
+            out[row_dst + x] = gray[row_src + sx]
+    return bytes(out)
 
 def detect_faces(engine, rgb_bytes, w, h):
     """YuNet-детекция лиц. Возвращает список [(x, y, w, h, score), ...].
@@ -154,7 +221,7 @@ def detect_faces(engine, rgb_bytes, w, h):
 
     # YuNet работает с фиксированным входом 320x320.
     # Наша фото -> ресайз до 320x320 (nearest-neighbor).
-    YUNET_SIZE = 320
+    YUNET_SIZE = 640
     small = resize_hwc_u8(rgb_bytes, w, h, YUNET_SIZE, YUNET_SIZE)
 
     try:

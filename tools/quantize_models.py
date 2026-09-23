@@ -20,12 +20,11 @@ MODELS_DIR = Path("assets/models")
 
 # Модели для квантизации: (входной файл, выходной файл)
 TARGETS = [
-    ("realesrgan_x4.onnx", "realesrgan_x4_int8.onnx"),
-    ("modnet.onnx",        "modnet_int8.onnx"),
-    ("yunet.onnx",         "yunet_int8.onnx"),
-    # Добавим позже, когда скачаем:
-    # ("gfpgan.onnx",       "gfpgan_int8.onnx"),
-    # ("ddcolor.onnx",      "ddcolor_int8.onnx"),
+    #("realesrgan_x4.onnx", "realesrgan_x4_int8.onnx"),
+    #("modnet.onnx",        "modnet_int8.onnx"),
+    #("yunet.onnx",         "yunet_int8.onnx"),
+    #("gfpgan.onnx",        "gfpgan_int8.onnx"),
+    ("ddcolor.onnx",       "ddcolor_int8.onnx"),
 ]
 
 
