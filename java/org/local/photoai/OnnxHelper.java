@@ -12,7 +12,6 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
 
-/** Тонкая обёртка над ONNX Runtime Java API. */
 public class OnnxHelper {
 
     private static final OrtEnvironment ENV = OrtEnvironment.getEnvironment();
@@ -20,7 +19,13 @@ public class OnnxHelper {
     private static final Map<Integer, String> INPUT_NAMES = new HashMap<>();
     private static int nextId = 1;
 
-    /** Загрузить модель. Возвращает handle (>0) или -1 при ошибке. */
+    // Строка ошибки последнего вызова (null = ok). Читается через getLastError().
+    private static String lastError = null;
+
+    public static String getLastError() {
+        return lastError;
+    }
+
     public static synchronized int loadModel(String path) {
         try {
             OrtSession.SessionOptions opts = new OrtSession.SessionOptions();
@@ -29,22 +34,43 @@ public class OnnxHelper {
 
             OrtSession session = ENV.createSession(path, opts);
             int id = nextId++;
-            SESSIONS.put(id, session);
 
-            // Первое имя входа
             Iterator<Map.Entry<String, ai.onnxruntime.NodeInfo>> it =
                     session.getInputInfo().entrySet().iterator();
+            String inName = "input";
             if (it.hasNext()) {
-                INPUT_NAMES.put(id, it.next().getKey());
+                Map.Entry<String, ai.onnxruntime.NodeInfo> e = it.next();
+                inName = e.getKey();
+                long[] ishape = e.getValue().getInfo().getShape();
+                System.out.println("[OnnxHelper] input name=" + inName + " shape=" + shapeToString(ishape));
+            }
+            INPUT_NAMES.put(id, inName);
+            SESSIONS.put(id, session);
+
+            Iterator<Map.Entry<String, ai.onnxruntime.NodeInfo>> oit =
+                    session.getOutputInfo().entrySet().iterator();
+            while (oit.hasNext()) {
+                Map.Entry<String, ai.onnxruntime.NodeInfo> e = oit.next();
+                long[] oshape = e.getValue().getInfo().getShape();
+                System.out.println("[OnnxHelper] output name=" + e.getKey() + " shape=" + shapeToString(oshape));
             }
             return id;
         } catch (Exception e) {
+            System.out.println("[OnnxHelper] loadModel error: " + e);
             e.printStackTrace();
             return -1;
         }
     }
 
-    /** HWC uint8 -> CHW float32. Возвращает flat bytes (little-endian float32). */
+    private static String shapeToString(long[] s) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < s.length; i++) {
+            sb.append(s[i]);
+            if (i < s.length - 1) sb.append(",");
+        }
+        return sb.append("]").toString();
+    }
+
     private static byte[] hwcU8ToChwF32(byte[] hwc, int w, int h, float scale) {
         int n = w * h;
         float[] chw = new float[n * 3];
@@ -53,9 +79,9 @@ public class OnnxHelper {
             for (int x = 0; x < w; x++) {
                 int src = (rowBase + x) * 3;
                 int dst = rowBase + x;
-                chw[dst]           = (hwc[src]     & 0xFF) * scale;
-                chw[n + dst]       = (hwc[src + 1] & 0xFF) * scale;
-                chw[2 * n + dst]   = (hwc[src + 2] & 0xFF) * scale;
+                chw[dst]         = (hwc[src]     & 0xFF) * scale;
+                chw[n + dst]     = (hwc[src + 1] & 0xFF) * scale;
+                chw[2 * n + dst] = (hwc[src + 2] & 0xFF) * scale;
             }
         }
         ByteBuffer bb = ByteBuffer.allocate(chw.length * 4).order(ByteOrder.LITTLE_ENDIAN);
@@ -64,23 +90,26 @@ public class OnnxHelper {
     }
 
     /**
-     * Запустить инференс. Вход — HWC uint8, выход — CHW float32 (байты).
-     * scale: 1/255.0 для моделей, ожидающих [0,1], или 1.0 для [0,255].
+     * Инференс. Возвращает byte[] вида:
+     *   [int32 rank][int32 d0][int32 d1][int32 d2][int32 d3][float32 data...]
+     * shape занимает ровно 16 байт, дальше — сырые float32 значения.
+     * При ошибке возвращает null, а текст ошибки доступен через getLastError().
      */
-    public static synchronized OnnxResult runModelU8(
+    public static synchronized byte[] runModelU8(
             int id, byte[] hwc, int w, int h, float scale) {
 
-        OnnxResult res = new OnnxResult();
+        lastError = null;
         try {
             OrtSession session = SESSIONS.get(id);
             if (session == null) {
-                res.error = "session not found: " + id;
-                return res;
+                lastError = "session not found: " + id;
+                return null;
             }
             if (hwc == null || hwc.length != w * h * 3) {
-                res.error = "invalid input size: " + (hwc == null ? 0 : hwc.length)
-                        + " expected " + (w * h * 3);
-                return res;
+                lastError = "invalid input size: " +
+                        (hwc == null ? 0 : hwc.length) +
+                        " expected " + (w * h * 3);
+                return null;
             }
 
             byte[] chwBytes = hwcU8ToChwF32(hwc, w, h, scale);
@@ -97,53 +126,85 @@ public class OnnxHelper {
 
             Iterator<Map.Entry<String, OnnxValue>> it = results.iterator();
             if (!it.hasNext()) {
-                res.error = "empty output";
-                return res;
+                lastError = "empty output";
+                return null;
             }
-            OnnxValue value = it.next().getValue();
+            Map.Entry<String, OnnxValue> firstOut = it.next();
+            OnnxValue value = firstOut.getValue();
             if (!(value instanceof OnnxTensor)) {
-                res.error = "output is not a tensor";
-                return res;
+                lastError = "output is not a tensor";
+                return null;
             }
             OnnxTensor outTensor = (OnnxTensor) value;
             long[] outShape = outTensor.getInfo().getShape();
+            System.out.println("[OnnxHelper] out shape=" + shapeToString(outShape));
 
-            FloatBuffer outBuf = outTensor.getFloatBuffer();
-            int outSize = outBuf.remaining();
-            byte[] outBytes = new byte[outSize * 4];
-            ByteBuffer obb = ByteBuffer.wrap(outBytes).order(ByteOrder.LITTLE_ENDIAN);
-            obb.asFloatBuffer().put(outBuf);
+            ByteBuffer bb = outTensor.getByteBuffer();
+            if (bb == null) {
+                lastError = "getByteBuffer returned null";
+                return null;
+            }
+            bb.order(ByteOrder.LITTLE_ENDIAN);
+            int total = bb.remaining() / 4;
+            byte[] outData = new byte[total * 4];
+            bb.get(outData, 0, total * 4);
 
-            res.data = outBytes;
-            int[] shapeInt = new int[outShape.length];
-            for (int i = 0; i < outShape.length; i++) shapeInt[i] = (int) outShape[i];
-            res.shape = shapeInt;
-            return res;
+            // Печатаем первые значения для отладки
+            FloatBuffer check = ByteBuffer.wrap(outData)
+                    .order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+            StringBuilder vals = new StringBuilder();
+            for (int i = 0; i < Math.min(5, check.limit()); i++) {
+                vals.append(check.get(i)).append(" ");
+            }
+            System.out.println("[OnnxHelper] first values: " + vals);
+
+            // Упаковываем результат: 16 байт shape + data
+            ByteBuffer result = ByteBuffer.allocate(16 + outData.length)
+                    .order(ByteOrder.LITTLE_ENDIAN);
+            result.putInt(outShape.length);
+            for (int i = 0; i < 4; i++) {
+                if (i < outShape.length) result.putInt((int) outShape[i]);
+                else result.putInt(0);
+            }
+            result.put(outData);
+            return result.array();
         } catch (Exception e) {
+            System.out.println("[OnnxHelper] run error: " + e);
             e.printStackTrace();
-            res.error = e.getClass().getSimpleName() + ": " + e.getMessage();
-            return res;
+            lastError = e.getClass().getSimpleName() + ": " + e.getMessage();
+            return null;
         }
     }
 
-    /** CHW float32 bytes -> HWC uint8. Ожидает shape=[1,3,H,W]. */
+    /** CHW float32 (из shape [1,3,H,W]) -> HWC uint8. */
     public static byte[] chwF32ToHwcU8(byte[] data, int[] shape) {
-        if (shape == null || shape.length != 4 || shape[1] != 3) {
-            return null;
-        }
+        if (shape == null || shape.length != 4 || shape[1] != 3) return null;
         int h = shape[2], w = shape[3];
         int n = h * w;
         FloatBuffer fb = ByteBuffer.wrap(data)
                 .order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
-
         byte[] out = new byte[n * 3];
         for (int i = 0; i < n; i++) {
-            float r = fb.get(i);
-            float g = fb.get(n + i);
-            float b = fb.get(2 * n + i);
-            out[i * 3]     = (byte) clamp255((int) (r * 255.0f));
-            out[i * 3 + 1] = (byte) clamp255((int) (g * 255.0f));
-            out[i * 3 + 2] = (byte) clamp255((int) (b * 255.0f));
+            out[i * 3]     = (byte) clamp255((int) (fb.get(i) * 255.0f));
+            out[i * 3 + 1] = (byte) clamp255((int) (fb.get(n + i) * 255.0f));
+            out[i * 3 + 2] = (byte) clamp255((int) (fb.get(2 * n + i) * 255.0f));
+        }
+        return out;
+    }
+
+    /** CHW float32 (из shape [1,1,H,W]) -> HWC uint8 (серое). */
+    public static byte[] chw1ToHwcU8(byte[] data, int[] shape) {
+        if (shape == null || shape.length != 4 || shape[1] != 1) return null;
+        int h = shape[2], w = shape[3];
+        int n = h * w;
+        FloatBuffer fb = ByteBuffer.wrap(data)
+                .order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
+        byte[] out = new byte[n * 3];
+        for (int i = 0; i < n; i++) {
+            int v = clamp255((int) (fb.get(i) * 255.0f));
+            out[i * 3]     = (byte) v;
+            out[i * 3 + 1] = (byte) v;
+            out[i * 3 + 2] = (byte) v;
         }
         return out;
     }

@@ -99,27 +99,48 @@ class AIEngine:
         return True
 
     def run(self, name, hwc_u8, w, h, scale=1.0 / 255.0):
+        """hwc_u8: bytes. Возвращает (bytes_out, w_out, h_out) или None."""
         if not self.load(name):
             return None
         try:
-            result = OnnxHelper.runModelU8(
+            import struct
+
+            packed = OnnxHelper.runModelU8(
                 self.handles[name], hwc_u8, w, h, float(scale))
-            if result.error is not None:
-                Logger.error(f"AIEngine.run({name}): {result.error}")
+
+            if packed is None:
+                err = OnnxHelper.getLastError()
+                Logger.error(f"AIEngine.run({name}): {err}")
                 return None
-            out_shape = [int(result.shape[i]) for i in range(len(result.shape))]
+
+            data = bytes(packed)
+            if len(data) < 16:
+                Logger.error(f"AIEngine.run({name}): packed слишком мал ({len(data)})")
+                return None
+
+            # Читаем shape из первых 16 байт
+            rank = struct.unpack_from("<i", data, 0)[0]
+            d0, d1, d2, d3 = struct.unpack_from("<iiii", data, 4)
+            out_shape = [d0, d1, d2, d3][:rank]
+            float_bytes = data[16:]
+
             Logger.info(f"AIEngine.run({name}): out shape={out_shape}")
+
             if len(out_shape) == 4 and out_shape[1] == 3:
-                hwc_out = OnnxHelper.chwF32ToHwcU8(result.data, result.shape)
+                hwc_out = OnnxHelper.chwF32ToHwcU8(float_bytes, out_shape)
                 if hwc_out is None:
+                    Logger.error(f"AIEngine.run({name}): chwF32ToHwcU8 -> None")
                     return None
                 return bytes(hwc_out), out_shape[3], out_shape[2]
             elif len(out_shape) == 4 and out_shape[1] == 1:
-                hwc_out = OnnxHelper.chw1ToHwcU8(result.data, result.shape)
+                hwc_out = OnnxHelper.chw1ToHwcU8(float_bytes, out_shape)
                 if hwc_out is None:
+                    Logger.error(f"AIEngine.run({name}): chw1ToHwcU8 -> None")
                     return None
                 return bytes(hwc_out), out_shape[3], out_shape[2]
-            return None
+            else:
+                Logger.error(f"AIEngine.run({name}): неожиданный shape {out_shape}")
+                return None
         except Exception as e:
             Logger.exception(f"AIEngine.run({name}): {e}")
             return None
