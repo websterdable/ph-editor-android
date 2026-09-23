@@ -79,6 +79,25 @@ public class OnnxHelper {
         return new long[0];
     }
 
+
+    /** Рекурсивно уплощает float[]/Object[] в плоский float[]. */
+    private static int flattenFloats(Object src, float[] dst, int offset) {
+        if (src == null) return offset;
+        if (src instanceof float[]) {
+            float[] a = (float[]) src;
+            System.arraycopy(a, 0, dst, offset, a.length);
+            return offset + a.length;
+        }
+        if (src instanceof Object[]) {
+            for (Object sub : (Object[]) src) {
+                offset = flattenFloats(sub, dst, offset);
+            }
+            return offset;
+        }
+        // Скаляр или неожиданный тип — заполняем нулями
+        return offset;
+    }
+
     private static String shapeToString(long[] s) {
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < s.length; i++) {
@@ -156,31 +175,34 @@ public class OnnxHelper {
             long[] outShape = outTensor.getInfo().getShape();
             System.out.println("[OnnxHelper] out shape=" + shapeToString(outShape));
 
-            ByteBuffer bb = outTensor.getByteBuffer();
-            if (bb == null) {
-                lastError = "getByteBuffer returned null";
-                return null;
-            }
-            bb.order(ByteOrder.LITTLE_ENDIAN);
-
-            // Считаем количество float из shape, а не из buffer.remaining()
+            // Читаем значение через getValue() — многомерный Java-массив
+            Object value = outTensor.getValue();
             long totalFloats = 1;
             for (long s : outShape) totalFloats *= s;
-            int totalBytes = (int) totalFloats * 4;
-            byte[] outData = new byte[totalBytes];
-
-            bb.rewind();  // позиция в начало
-            // Читаем ровно totalBytes байт через байтовый буфер
-            for (int i = 0; i < totalBytes; i++) {
-                outData[i] = bb.get();
+            if (totalFloats <= 0 || totalFloats > 100_000_000L) {
+                lastError = "unreasonable output size: " + totalFloats;
+                return null;
+            }
+            float[] flat = new float[(int) totalFloats];
+            int written = flattenFloats(value, flat, 0);
+            if (written != totalFloats) {
+                lastError = "flatten size mismatch: " + written +
+                        " expected " + totalFloats;
+                return null;
             }
 
+            // floats -> bytes (LE)
+            ByteBuffer dataBuf = ByteBuffer.allocate(flat.length * 4)
+                    .order(ByteOrder.LITTLE_ENDIAN);
+            dataBuf.asFloatBuffer().put(flat);
+            byte[] outData = dataBuf.array();
+
+
+
             // Печатаем первые значения для отладки
-            FloatBuffer check = ByteBuffer.wrap(outData)
-                    .order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer();
             StringBuilder vals = new StringBuilder();
-            for (int i = 0; i < Math.min(5, check.limit()); i++) {
-                vals.append(check.get(i)).append(" ");
+            for (int i = 0; i < Math.min(5, flat.length); i++) {
+                vals.append(flat[i]).append(" ");
             }
             System.out.println("[OnnxHelper] first values: " + vals);
 
